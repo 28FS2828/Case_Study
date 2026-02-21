@@ -2,13 +2,18 @@ import re
 import pandas as pd
 import streamlit as st
 
+# =========================================================
+# PAGE SETUP
+# =========================================================
 st.set_page_config(page_title="Hoth Intelligence Hub", layout="wide")
 st.title("🚀 Hoth Industries: Supplier Intelligence Hub")
 st.markdown("---")
 
-# -------------------------------
-# Entity Resolution Helpers
-# -------------------------------
+TOP_N = 10  # Standardize row counts across tables
+
+# =========================================================
+# ENTITY RESOLUTION HELPERS
+# =========================================================
 LEGAL_SUFFIXES = {
     "inc", "incorporated", "llc", "l.l.c", "ltd", "limited",
     "corp", "corporation", "co", "company", "gmbh", "s.a", "sa"
@@ -60,9 +65,9 @@ def apply_entity_resolution(df: pd.DataFrame, col: str, manual_key_map: dict | N
     out = out.drop(columns=["_supplier_key"])
     return out
 
-# -------------------------------
-# General Helpers
-# -------------------------------
+# =========================================================
+# GENERAL HELPERS
+# =========================================================
 def read_csv_flexible(candidates):
     """Try multiple filenames (Streamlit Cloud vs local copies)."""
     last_err = None
@@ -78,9 +83,20 @@ def safe_to_datetime(df, col):
         df[col] = pd.to_datetime(df[col], errors="coerce")
     return df
 
-# -------------------------------
-# Load + clean data
-# -------------------------------
+def with_rank(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.reset_index(drop=True).copy()
+    out.insert(0, "Rank", range(1, len(out) + 1))
+    return out
+
+def apply_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
+    if not query:
+        return df
+    q = query.strip().lower()
+    return df[df["supplier_name"].astype(str).str.lower().str.contains(q, na=False)]
+
+# =========================================================
+# LOAD + CLEAN DATA
+# =========================================================
 @st.cache_data
 def load_data():
     orders = read_csv_flexible([
@@ -101,9 +117,10 @@ def load_data():
         "rfq_responses.csv",
     ])
 
-    # Manual overrides: normalized_key -> canonical_key (keep minimal; only add when needed)
+    # Manual overrides (normalized_key -> canonical_key)
+    # Keep minimal; only add when you see stubborn edge cases in QA
     manual_key_map = {
-        # "apex mfg": "apex manufacturing",
+        "apex mfg": "apex manufacturing",
     }
 
     orders  = apply_entity_resolution(orders,  "supplier_name", manual_key_map)
@@ -126,9 +143,9 @@ except Exception as e:
     st.error(f"Error loading data: {e}")
     st.stop()
 
-# -------------------------------
-# Entity Resolution QA
-# -------------------------------
+# =========================================================
+# ENTITY RESOLUTION QA
+# =========================================================
 with st.expander("🧼 Entity Resolution QA (show potential duplicates)"):
     if "supplier_name" not in orders.columns:
         st.write("Orders file does not contain supplier_name.")
@@ -153,9 +170,9 @@ with st.expander("🧼 Entity Resolution QA (show potential duplicates)"):
             )
             st.caption("If any are true duplicates that didn't merge cleanly, add a manual_key_map entry in load_data().")
 
-# -------------------------------
+# =========================================================
 # KPI CALCULATIONS
-# -------------------------------
+# =========================================================
 if "po_amount" not in orders.columns:
     st.error("Expected 'po_amount' column in orders but didn't find it.")
     st.stop()
@@ -212,9 +229,9 @@ avg_price = rfqs.groupby("supplier_name", dropna=False)["quoted_price"].mean().r
 avg_price.columns = ["supplier_name", "avg_price"]
 avg_price["avg_price"] = avg_price["avg_price"].round(2)
 
-# -------------------------------
-# Unified supplier table
-# -------------------------------
+# =========================================================
+# UNIFIED SUPPLIER TABLE
+# =========================================================
 supplier_master = (
     spend.merge(on_time, on="supplier_name", how="left")
          .merge(defects, on="supplier_name", how="left")
@@ -227,9 +244,9 @@ supplier_master = supplier_master.fillna({
     "avg_price": 0.0,
 })
 
-# -------------------------------
-# Simple performance score
-# -------------------------------
+# =========================================================
+# PERFORMANCE SCORING + FLAGS
+# =========================================================
 max_price = supplier_master["avg_price"].replace(0, pd.NA).max()
 if pd.notna(max_price) and max_price > 0:
     supplier_master["price_score"] = 100 * (1 - (supplier_master["avg_price"] / max_price))
@@ -253,59 +270,64 @@ def risk_flag(row):
     return "🟢 Strategic"
 
 supplier_master["risk_flag"] = supplier_master.apply(risk_flag, axis=1)
+
+# Sort best-to-worst by score
 supplier_master = supplier_master.sort_values("performance_score", ascending=False)
 
-# -------------------------------
-# Display Helpers
-# -------------------------------
-def with_rank(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.reset_index(drop=True).copy()
-    out.insert(0, "Rank", range(1, len(out) + 1))
-    return out
-
-def apply_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
-    if not query:
-        return df
-    q = query.strip().lower()
-    return df[df["supplier_name"].astype(str).str.lower().str.contains(q, na=False)]
-
-# -------------------------------
-# Search UI
-# -------------------------------
+# =========================================================
+# SEARCH UI
+# =========================================================
 st.subheader("🔎 Search Suppliers")
-search_query = st.text_input("Search by supplier name", placeholder="e.g., Apex, Stellar, TitanForge...")
+search_query = st.text_input(
+    "Search by supplier name",
+    placeholder="e.g., Apex, Stellar, TitanForge..."
+)
 
-# -------------------------------
-# Display: Unified view + slices (search-aware)
-# -------------------------------
-st.subheader("🏭 Unified Supplier Intelligence View")
+# Apply search filter for display tables
 filtered_master = apply_search(supplier_master, search_query)
-st.dataframe(with_rank(filtered_master), use_container_width=True, hide_index=True)
 
-st.markdown("### 🔴 Highest Risk Suppliers")
-risk_tbl = supplier_master[supplier_master["risk_flag"].str.contains("🔴|🟠")]
+# =========================================================
+# DISPLAY TABLES (STANDARDIZED TOP_N)
+# =========================================================
+st.subheader("🏭 Unified Supplier Intelligence View (Top 10)")
+st.dataframe(with_rank(filtered_master.head(TOP_N)), use_container_width=True, hide_index=True)
+
+st.markdown(f"### 🔴 Highest Risk Suppliers (Top {TOP_N})")
+risk_tbl = supplier_master[supplier_master["risk_flag"].str.contains("🔴|🟠|🟡")]
+# show worst first: quality risk -> delivery -> cost, then by low score
+severity_rank = {"🔴 Quality Risk": 0, "🟠 Delivery Risk": 1, "🟡 Cost Risk": 2, "🟢 Strategic": 3}
+risk_tbl = risk_tbl.copy()
+risk_tbl["_sev"] = risk_tbl["risk_flag"].map(severity_rank).fillna(9)
+risk_tbl = risk_tbl.sort_values(["_sev", "performance_score"], ascending=[True, True]).drop(columns=["_sev"])
 risk_tbl = apply_search(risk_tbl, search_query)
-st.dataframe(with_rank(risk_tbl), use_container_width=True, hide_index=True)
+st.dataframe(with_rank(risk_tbl.head(TOP_N)), use_container_width=True, hide_index=True)
 
-st.markdown("### 🟢 Top Performing Suppliers")
-top_tbl = apply_search(supplier_master.head(5), search_query)
-st.dataframe(with_rank(top_tbl), use_container_width=True, hide_index=True)
+st.markdown(f"### 🟢 Top Performing Suppliers (Top {TOP_N})")
+top_tbl = apply_search(supplier_master.sort_values("performance_score", ascending=False), search_query)
+st.dataframe(with_rank(top_tbl.head(TOP_N)), use_container_width=True, hide_index=True)
 
-# -------------------------------
-# 💰 Financial Impact Estimation (prototype-level)
-# -------------------------------
+# =========================================================
+# 💰 FINANCIAL IMPACT (PROTOTYPE ESTIMATES)
+# =========================================================
 st.markdown("---")
 st.header("💰 Estimated Financial Impact (Prototype)")
 
+st.caption(
+    "These estimates will change as supplier identity resolution improves (merging duplicates changes spend, pricing benchmarks, and unit estimates)."
+)
+
+# Use lowest non-zero avg RFQ as benchmark
 nonzero_prices = supplier_master["avg_price"].replace(0, pd.NA).dropna()
 lowest_price = nonzero_prices.min() if len(nonzero_prices) else pd.NA
 
+# Estimate units from spend/avg_price (only where avg_price > 0)
 supplier_master["est_units"] = 0.0
 mask_price = supplier_master["avg_price"] > 0
 supplier_master.loc[mask_price, "est_units"] = (
     supplier_master.loc[mask_price, "total_spend"] / supplier_master.loc[mask_price, "avg_price"]
 )
 
+# Overpay vs lowest benchmark
 supplier_master["estimated_overpay"] = 0.0
 if pd.notna(lowest_price):
     supplier_master["price_delta_vs_best"] = (supplier_master["avg_price"] - lowest_price).clip(lower=0)
@@ -317,9 +339,11 @@ else:
 
 total_overpay = float(supplier_master["estimated_overpay"].sum())
 
+# Defect cost model: placeholder (simple)
 supplier_master["defect_cost"] = supplier_master["total_spend"] * (supplier_master["defect_rate"] / 100.0) * 0.5
 total_defect_cost = float(supplier_master["defect_cost"].sum())
 
+# Delivery risk exposure: spend for suppliers below 85% on-time
 late_spend = float(supplier_master.loc[supplier_master["on_time_rate"] < 85, "total_spend"].sum())
 
 c1, c2, c3 = st.columns(3)
