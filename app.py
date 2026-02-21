@@ -19,14 +19,9 @@ def normalize_supplier_key(name: str) -> str:
     if pd.isna(name):
         return ""
     s = str(name).lower().strip()
+    s = re.sub(r"[^a-z0-9\s]", " ", s)      # punctuation -> spaces
+    s = re.sub(r"\s+", " ", s).strip()     # collapse whitespace
 
-    # punctuation -> spaces
-    s = re.sub(r"[^a-z0-9\s]", " ", s)
-
-    # collapse whitespace
-    s = re.sub(r"\s+", " ", s).strip()
-
-    # drop common legal suffixes at the end (repeat for multiple)
     parts = s.split(" ")
     while parts and parts[-1] in LEGAL_SUFFIXES:
         parts = parts[:-1]
@@ -39,14 +34,12 @@ def apply_entity_resolution(df: pd.DataFrame, col: str, manual_key_map: dict | N
 
     out = df.copy()
     out[col] = out[col].astype(str).str.strip()
-
     out["_supplier_key"] = out[col].apply(normalize_supplier_key)
 
-    # Optional: manual overrides map normalized_key -> canonical_key
     if manual_key_map:
         out["_supplier_key"] = out["_supplier_key"].replace(manual_key_map)
 
-    # Pick canonical display name per key = most frequent original name (post-trim)
+    # Canonical display name per key = most frequent original name
     canonical = (
         out.groupby("_supplier_key")[col]
            .agg(lambda x: x.value_counts().index[0])
@@ -99,14 +92,11 @@ def load_data():
     ])
 
     # -------------------------------
-    # Entity Resolution (strong)
+    # Entity Resolution (manual overrides)
+    # normalized_key -> canonical_key
     # -------------------------------
-    # Manual overrides: normalized_key -> canonical_key
-    # Add entries here if Entity Resolution QA shows stubborn edge cases
     manual_key_map = {
-        # Example patterns (keep minimal; only add when you see issues)
-        # "apex mfg": "apex manufacturing",
-        # "apex manufacturing inc": "apex manufacturing",
+        "apex mfg": "apex manufacturing",   # ✅ fixes APEX MFG vs APEX Manufacturing Inc
     }
 
     orders = apply_entity_resolution(orders, "supplier_name", manual_key_map)
@@ -130,7 +120,7 @@ except Exception as e:
     st.stop()
 
 # -------------------------------
-# Entity Resolution QA (optional but great for interview)
+# Entity Resolution QA
 # -------------------------------
 with st.expander("🧼 Entity Resolution QA (show potential duplicates)"):
     if "supplier_name" not in orders.columns:
@@ -139,7 +129,6 @@ with st.expander("🧼 Entity Resolution QA (show potential duplicates)"):
         raw = orders["supplier_name"].astype(str).str.strip()
         keys = raw.apply(normalize_supplier_key)
 
-        # show any keys that map to multiple raw values
         tmp = pd.DataFrame({"supplier_name_raw": raw, "normalized_key": keys})
         counts = tmp.groupby("normalized_key")["supplier_name_raw"].nunique().reset_index(name="raw_name_variants")
         multi = counts[counts["raw_name_variants"] > 1].sort_values("raw_name_variants", ascending=False)
@@ -152,14 +141,14 @@ with st.expander("🧼 Entity Resolution QA (show potential duplicates)"):
             st.dataframe(
                 tmp[tmp["normalized_key"].isin(show_keys)]
                   .sort_values(["normalized_key", "supplier_name_raw"]),
-                use_container_width=True
+                use_container_width=True,
+                hide_index=True
             )
             st.caption("If any are true duplicates that didn't merge cleanly, add a manual_key_map entry in load_data().")
 
 # -------------------------------
 # KPI CALCULATIONS
 # -------------------------------
-# Spend
 if "po_amount" not in orders.columns:
     st.error("Expected 'po_amount' column in orders but didn't find it.")
     st.stop()
@@ -168,6 +157,7 @@ if "supplier_name" not in orders.columns:
     st.error("Expected 'supplier_name' column in orders but didn't find it.")
     st.stop()
 
+# Spend
 spend = orders.groupby("supplier_name", dropna=False)["po_amount"].sum().reset_index()
 spend.columns = ["supplier_name", "total_spend"]
 
@@ -194,7 +184,6 @@ q = quality.merge(
     how="left",
 )
 
-# defect rate = parts_rejected / parts_inspected (fallback to 0 if not present)
 if {"parts_rejected", "parts_inspected"}.issubset(set(q.columns)):
     q["defect_rate"] = (q["parts_rejected"] / q["parts_inspected"]).replace([pd.NA, float("inf")], 0)
 else:
@@ -234,7 +223,6 @@ supplier_master = supplier_master.fillna({
 # -------------------------------
 # Simple performance score
 # -------------------------------
-# price_score: lower avg_price -> higher score (0-100)
 max_price = supplier_master["avg_price"].replace(0, pd.NA).max()
 if pd.notna(max_price) and max_price > 0:
     supplier_master["price_score"] = 100 * (1 - (supplier_master["avg_price"] / max_price))
@@ -261,17 +249,22 @@ supplier_master["risk_flag"] = supplier_master.apply(risk_flag, axis=1)
 supplier_master = supplier_master.sort_values("performance_score", ascending=False)
 
 # -------------------------------
-# Display: Unified view + slices
+# Display Tables (add a titled first column)
 # -------------------------------
+def with_rank(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.reset_index(drop=True).copy()
+    out.insert(0, "Rank", range(1, len(out) + 1))
+    return out
+
 st.subheader("🏭 Unified Supplier Intelligence View")
-st.dataframe(supplier_master, use_container_width=True)
+st.dataframe(with_rank(supplier_master), use_container_width=True, hide_index=True)
 
 st.markdown("### 🔴 Highest Risk Suppliers")
 risk_tbl = supplier_master[supplier_master["risk_flag"].str.contains("🔴|🟠")]
-st.dataframe(risk_tbl, use_container_width=True)
+st.dataframe(with_rank(risk_tbl), use_container_width=True, hide_index=True)
 
 st.markdown("### 🟢 Top Performing Suppliers")
-st.dataframe(supplier_master.head(5), use_container_width=True)
+st.dataframe(with_rank(supplier_master.head(5)), use_container_width=True, hide_index=True)
 
 # -------------------------------
 # 💰 Financial Impact Estimation (prototype-level)
@@ -279,18 +272,15 @@ st.dataframe(supplier_master.head(5), use_container_width=True)
 st.markdown("---")
 st.header("💰 Estimated Financial Impact (Prototype)")
 
-# Use lowest non-zero avg RFQ as benchmark
 nonzero_prices = supplier_master["avg_price"].replace(0, pd.NA).dropna()
 lowest_price = nonzero_prices.min() if len(nonzero_prices) else pd.NA
 
-# Estimate units from spend/avg_price (only where avg_price > 0)
 supplier_master["est_units"] = 0.0
 mask_price = supplier_master["avg_price"] > 0
 supplier_master.loc[mask_price, "est_units"] = (
     supplier_master.loc[mask_price, "total_spend"] / supplier_master.loc[mask_price, "avg_price"]
 )
 
-# Overpay vs lowest benchmark
 supplier_master["estimated_overpay"] = 0.0
 if pd.notna(lowest_price):
     supplier_master["price_delta_vs_best"] = (supplier_master["avg_price"] - lowest_price).clip(lower=0)
@@ -302,11 +292,9 @@ else:
 
 total_overpay = float(supplier_master["estimated_overpay"].sum())
 
-# Defect cost model: placeholder (simple)
 supplier_master["defect_cost"] = supplier_master["total_spend"] * (supplier_master["defect_rate"] / 100.0) * 0.5
 total_defect_cost = float(supplier_master["defect_cost"].sum())
 
-# Delivery risk exposure: spend for suppliers below 85% on-time
 late_spend = float(supplier_master.loc[supplier_master["on_time_rate"] < 85, "total_spend"].sum())
 
 c1, c2, c3 = st.columns(3)
@@ -329,8 +317,9 @@ with st.expander("Show impact drivers by supplier"):
         "risk_flag",
     ]
     st.dataframe(
-        supplier_master[impact_cols].sort_values("estimated_overpay", ascending=False),
-        use_container_width=True
+        with_rank(supplier_master[impact_cols].sort_values("estimated_overpay", ascending=False)),
+        use_container_width=True,
+        hide_index=True
     )
 
 with st.expander("Debug: show column names"):
