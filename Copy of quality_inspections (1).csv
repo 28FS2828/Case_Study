@@ -1,0 +1,201 @@
+inspection_id,order_id,inspection_date,parts_inspected,parts_rejected,rejection_reason,rework_required
+INS-110,PO-2021-021,2021-11-18,18,0,Passed,No
+INS-153,PO-2021-011,2021-11-19,262,0,Passed,No
+INS-147,PO-2021-011,2021-11-20,288,1,Minor surface finish issues,No
+INS-167,PO-2021-011,2021-11-21,108,3,Minor machining marks,No
+INS-060,PO-2021-021,2021-12-09,243,10,Cosmetic only,Yes
+INS-028,PO-2021-021,2021-12-21,1035,41,Surface scratches,Yes
+INS-048,PO-2021-021,2021-12-21,239,4,Paint chips,Yes
+INS-082,PO-2021-032,2022-01-01,738,29,Paint chips,Yes
+INS-054,PO-2021-032,2022-01-08,257,7,Burrs on edges,Yes
+INS-172,PO-2021-032,2022-01-11,59,1,Minor surface finish issues,Yes
+INS-076,PO-2021-032,2022-01-12,201,7,Cosmetic only,Yes
+INS-150,PO-2022-042,2022-01-26,97,2,Calibration slightly off,No
+INS-137,PO-2022-042,2022-01-30,52,2,Minor surface finish issues,Yes
+INS-188,PO-2021-032,2022-02-02,287,8,Minor cosmetic,Yes
+INS-128,PO-2022-042,2022-02-03,242,9,Minor surface finish issues,No
+INS-197,PO-2022-053,2022-03-02,138,5,Blade damage in shipping,Yes
+INS-106,PO-2022-042,2022-03-14,205,2,Minor machining marks,No
+INS-046,PO-2022-053,2022-03-19,284,10,Sensor drift,Yes
+INS-083,PO-2022-053,2022-03-22,70,2,Minor cosmetic,Yes
+INS-071,PO-2022-053,2022-04-02,55,1,Burrs on edges,Yes
+INS-072,PO-2022-063,2022-04-17,88,3,Sensor drift,Yes
+INS-006,PO-2022-063,2022-04-19,175,5,Burrs on edges,Yes
+INS-062,PO-2022-073,2022-04-29,146,6,Minor cosmetic,Yes
+INS-123,PO-2022-063,2022-04-30,240,0,Passed,No
+INS-195,PO-2022-063,2022-04-30,54,0,Passed,No
+INS-041,PO-2022-063,2022-05-05,262,8,Paint chips,No
+INS-065,PO-2022-073,2022-05-05,32,1,Minor cosmetic,Yes
+INS-190,PO-2022-063,2022-05-12,209,1,Cosmetic only,No
+INS-073,PO-2022-073,2022-05-15,29,1,Calibration slightly off,No
+INS-151,PO-2022-084,2022-06-15,881,32,Cosmetic only,Yes
+INS-084,PO-2022-084,2022-06-17,304,13,Minor cosmetic,No
+INS-102,PO-2022-084,2022-06-24,523,122,Welding defects multiple tubes,Yes
+INS-008,PO-2022-084,2022-06-25,516,20,Burrs on edges,No
+INS-161,PO-2022-094,2022-07-04,46,2,Balance issues,Yes
+INS-040,PO-2022-094,2022-07-21,547,4,Paint chips,No
+INS-011,PO-2022-094,2022-07-30,414,18,Burrs on edges,Yes
+INS-138,PO-2022-105,2022-08-14,1191,14,Balance issues,Yes
+INS-018,PO-2022-105,2022-08-15,238,1,Cosmetic only,No
+INS-087,PO-2022-105,2022-08-19,266,11,Minor cosmetic,Yes
+INS-001,PO-2022-105,2022-08-20,227,0,Passed,No
+INS-066,PO-2022-105,2022-08-22,371,5,Calibration slightly off,No
+INS-105,PO-2022-105,2022-09-08,128,3,Blade damage in shipping,No
+INS-146,PO-2022-115,2022-09-08,1195,53,Minor machining marks,Yes
+INS-061,PO-2022-115,2022-09-16,108,0,Passed,No
+INS-175,PO-2022-115,2022-09-16,266,7,Burrs on edges,No
+INS-043,PO-2022-115,2022-09-20,1195,56,Blade damage in shipping,No
+INS-165,PO-2022-115,2022-10-02,1131,113,Wrong thickness - too thin,Yes
+INS-015,PO-2022-126,2022-10-04,297,4,Minor cosmetic,No
+INS-140,PO-2022-126,2022-10-23,592,17,Minor machining marks,No
+INS-050,PO-2022-126,2022-10-31,758,105,Tube spacing incorrect,Yes
+INS-107,PO-2022-136,2022-11-08,277,1,Balance issues,No
+INS-119,PO-2022-126,2022-11-08,56,0,Passed,No
+INS-170,PO-2022-136,2022-11-11,254,9,Burrs on edges,Yes
+INS-029,PO-2022-136,2022-11-24,42,0,Passed,No
+INS-044,PO-2022-146,2022-12-02,594,3,Sensor drift,No
+INS-154,PO-2022-136,2022-12-05,200,5,Minor machining marks,No
+INS-063,PO-2022-136,2022-12-08,248,9,Cosmetic only,No
+INS-077,PO-2022-146,2022-12-28,81,2,Calibration slightly off,Yes
+INS-193,PO-2022-146,2022-12-30,830,19,Sensor drift,Yes
+INS-086,PO-2022-157,2023-01-02,271,6,Minor machining marks,Yes
+INS-113,PO-2022-157,2023-01-10,108,0,Passed,No
+INS-092,PO-2022-157,2023-01-15,103,0,Passed,No
+INS-069,PO-2022-157,2023-01-16,120,4,Cosmetic only,No
+INS-149,PO-2022-157,2023-01-17,45,1,Sensor drift,Yes
+INS-192,PO-2023-167,2023-02-02,67,1,Minor cosmetic,Yes
+INS-009,PO-2023-167,2023-02-07,209,3,Calibration slightly off,No
+INS-158,PO-2023-167,2023-02-19,86,19,Poor weld quality,Yes
+INS-182,PO-2023-167,2023-02-19,160,4,Blade damage in shipping,No
+INS-120,PO-2023-178,2023-02-23,69,0,Passed,No
+INS-183,PO-2023-167,2023-02-23,608,27,Balance issues,Yes
+INS-198,PO-2023-178,2023-03-15,117,0,Passed,No
+INS-200,PO-2023-188,2023-04-01,235,4,Sensor drift,No
+INS-094,PO-2023-167,2023-04-03,1034,190,Tube spacing incorrect,Yes
+INS-100,PO-2023-188,2023-04-20,125,2,Balance issues,Yes
+INS-118,PO-2023-198,2023-04-24,260,5,Minor cosmetic,Yes
+INS-036,PO-2023-188,2023-04-27,19,0,Passed,No
+INS-005,PO-2023-188,2023-04-29,292,6,Burrs on edges,No
+INS-189,PO-2023-188,2023-04-29,200,7,Burrs on edges,Yes
+INS-186,PO-2023-188,2023-05-03,55,9,Wrong alloy used,Yes
+INS-179,PO-2023-198,2023-05-26,145,2,Sensor drift,No
+INS-155,PO-2023-198,2023-05-27,833,115,Wrong thickness - too thin,Yes
+INS-089,PO-2023-209,2023-05-30,82,3,Surface scratches,No
+INS-023,PO-2023-209,2023-06-03,256,6,Minor surface finish issues,Yes
+INS-037,PO-2023-209,2023-06-06,56,1,Minor cosmetic,Yes
+INS-053,PO-2023-219,2023-06-26,226,4,Surface scratches,Yes
+INS-017,PO-2023-198,2023-07-01,101,17,Welding defects multiple tubes,Yes
+INS-112,PO-2023-209,2023-07-03,780,144,Poor weld quality,Yes
+INS-031,PO-2023-209,2023-07-04,228,4,Sensor drift,Yes
+INS-148,PO-2023-219,2023-08-12,74,1,Calibration slightly off,No
+INS-180,PO-2023-230,2023-08-18,203,6,Surface scratches,No
+INS-145,PO-2023-230,2023-08-22,229,6,Minor machining marks,Yes
+INS-133,PO-2023-230,2023-08-26,37,0,Passed,No
+INS-035,PO-2023-240,2023-09-07,20,0,Passed,No
+INS-056,PO-2023-240,2023-09-28,385,18,Minor machining marks,No
+INS-101,PO-2023-251,2023-10-07,343,16,Paint chips,No
+INS-093,PO-2023-251,2023-10-19,114,2,Minor surface finish issues,Yes
+INS-166,PO-2023-251,2023-10-29,49,2,Paint chips,Yes
+INS-096,PO-2023-261,2023-11-06,83,0,Passed,No
+INS-191,PO-2023-251,2023-11-06,648,12,Balance issues,No
+INS-013,PO-2023-261,2023-11-10,197,2,Minor surface finish issues,No
+INS-122,PO-2023-261,2023-11-27,30,0,Passed,No
+INS-177,PO-2023-271,2023-11-28,945,31,Cosmetic only,No
+INS-104,PO-2023-271,2023-11-29,223,9,Sensor drift,Yes
+INS-090,PO-2023-261,2023-12-12,89,19,Wrong alloy used,Yes
+INS-042,PO-2023-271,2023-12-13,483,12,Minor surface finish issues,No
+INS-030,PO-2023-271,2023-12-16,98,2,Surface scratches,Yes
+INS-176,PO-2023-271,2023-12-31,293,11,Blade damage in shipping,Yes
+INS-020,PO-2023-282,2024-01-01,47,2,Minor cosmetic,No
+INS-199,PO-2023-282,2024-01-16,105,3,Burrs on edges,Yes
+INS-019,PO-2023-282,2024-01-17,58,0,Passed,No
+INS-124,PO-2024-292,2024-01-26,281,8,Minor cosmetic,Yes
+INS-055,PO-2023-282,2024-01-27,145,2,Surface scratches,No
+INS-058,PO-2023-282,2024-01-27,109,0,Passed,No
+INS-075,PO-2023-282,2024-01-28,65,2,Balance issues,No
+INS-178,PO-2024-292,2024-02-07,294,6,Blade damage in shipping,No
+INS-051,PO-2023-282,2024-02-08,35,3,Material grade wrong,No
+INS-194,PO-2024-292,2024-02-08,487,6,Burrs on edges,No
+INS-033,PO-2024-292,2024-02-15,150,5,Minor cosmetic,No
+INS-163,PO-2024-292,2024-02-20,140,6,Minor machining marks,Yes
+INS-014,PO-2024-292,2024-02-21,163,7,Minor machining marks,No
+INS-097,PO-2024-303,2024-02-21,808,12,Blade damage in shipping,No
+INS-114,PO-2024-303,2024-02-25,173,4,Balance issues,Yes
+INS-174,PO-2024-292,2024-02-27,134,2,Minor machining marks,No
+INS-025,PO-2024-292,2024-02-28,239,37,Welding defects multiple tubes,Yes
+INS-173,PO-2024-292,2024-03-06,241,9,Burrs on edges,No
+INS-022,PO-2024-303,2024-03-11,142,2,Paint chips,No
+INS-010,PO-2024-303,2024-03-22,142,3,Paint chips,Yes
+INS-003,PO-2024-303,2024-03-23,55,13,Tube spacing incorrect,Yes
+INS-016,PO-2024-313,2024-03-29,142,3,Minor cosmetic,Yes
+INS-143,PO-2024-303,2024-04-08,285,8,Balance issues,Yes
+INS-026,PO-2024-323,2024-05-10,798,9,Paint chips,No
+INS-164,PO-2024-323,2024-05-28,175,6,Minor surface finish issues,Yes
+INS-081,PO-2024-323,2024-05-31,360,15,Minor cosmetic,No
+INS-039,PO-2024-334,2024-06-01,69,2,Minor surface finish issues,No
+INS-078,PO-2024-323,2024-06-17,18,2,Tube spacing incorrect,No
+INS-088,PO-2024-344,2024-06-22,286,0,Passed,No
+INS-139,PO-2024-334,2024-06-27,373,0,Passed,No
+INS-079,PO-2024-344,2024-07-19,192,25,Tube alignment poor,Yes
+INS-129,PO-2024-344,2024-07-27,129,3,Minor machining marks,No
+INS-135,PO-2024-344,2024-08-07,729,21,Paint chips,No
+INS-034,PO-2024-355,2024-08-10,123,5,Burrs on edges,No
+INS-045,PO-2024-355,2024-08-14,101,4,Calibration slightly off,No
+INS-047,PO-2024-365,2024-08-21,160,1,Cosmetic only,Yes
+INS-181,PO-2024-355,2024-08-24,120,3,Minor machining marks,No
+INS-080,PO-2024-355,2024-08-31,46,1,Calibration slightly off,Yes
+INS-049,PO-2024-365,2024-09-06,266,11,Cosmetic only,Yes
+INS-012,PO-2024-376,2024-10-08,42,0,Passed,No
+INS-132,PO-2024-376,2024-10-19,126,0,Passed,No
+INS-027,PO-2024-386,2024-10-21,240,10,Balance issues,Yes
+INS-032,PO-2024-376,2024-10-24,582,27,Sensor drift,Yes
+INS-141,PO-2024-376,2024-10-29,91,1,Paint chips,No
+INS-162,PO-2024-376,2024-11-01,585,17,Paint chips,Yes
+INS-115,PO-2024-386,2024-11-10,29,0,Passed,No
+INS-038,PO-2024-376,2024-11-19,36,4,Leaked during pressure test,Yes
+INS-091,PO-2024-386,2024-12-02,175,0,Passed,No
+INS-109,PO-2024-386,2024-12-11,139,2,Calibration slightly off,No
+INS-125,PO-2024-396,2024-12-11,229,1,Minor cosmetic,No
+INS-002,PO-2024-396,2024-12-16,34,1,Burrs on edges,No
+INS-157,PO-2024-396,2024-12-20,269,3,Burrs on edges,No
+INS-160,PO-2024-396,2024-12-27,115,3,Burrs on edges,No
+INS-074,PO-2024-407,2024-12-28,61,0,Passed,No
+INS-070,PO-2024-396,2025-01-11,282,3,Blade damage in shipping,No
+INS-168,PO-2024-407,2025-01-15,172,6,Balance issues,Yes
+INS-136,PO-2024-407,2025-01-24,121,5,Minor machining marks,No
+INS-121,PO-2025-417,2025-02-17,329,0,Passed,No
+INS-098,PO-2024-407,2025-02-18,72,17,Leaked during pressure test,Yes
+INS-099,PO-2025-428,2025-03-06,1142,37,Minor cosmetic,No
+INS-024,PO-2025-428,2025-03-08,17,0,Passed,No
+INS-004,PO-2025-417,2025-03-12,99,1,Minor machining marks,Yes
+INS-126,PO-2025-428,2025-03-12,259,9,Balance issues,No
+INS-095,PO-2025-428,2025-03-17,221,6,Burrs on edges,Yes
+INS-064,PO-2025-428,2025-03-26,258,8,Blade damage in shipping,No
+INS-196,PO-2025-438,2025-04-16,72,2,Cosmetic only,Yes
+INS-134,PO-2025-438,2025-04-20,68,3,Paint chips,No
+INS-068,PO-2025-438,2025-04-25,344,41,Leaked during pressure test,Yes
+INS-152,PO-2025-438,2025-05-04,589,27,Calibration slightly off,No
+INS-059,PO-2025-448,2025-05-11,27,0,Passed,No
+INS-127,PO-2025-438,2025-05-15,292,41,Material grade wrong,Yes
+INS-187,PO-2025-459,2025-05-19,160,4,Balance issues,Yes
+INS-159,PO-2025-448,2025-05-23,61,8,Coil spacing wrong,Yes
+INS-117,PO-2025-448,2025-05-31,88,4,Minor machining marks,No
+INS-144,PO-2025-448,2025-05-31,300,3,Paint chips,No
+INS-085,PO-2025-459,2025-06-19,15,0,Passed,No
+INS-103,PO-2025-459,2025-06-24,118,4,Balance issues,No
+INS-142,PO-2025-448,2025-06-24,112,18,Wrong alloy used,Yes
+INS-108,PO-2025-459,2025-06-28,146,0,Passed,No
+INS-131,PO-2025-469,2025-07-01,179,5,Minor machining marks,Yes
+INS-169,PO-2025-469,2025-07-06,158,7,Blade damage in shipping,No
+INS-052,PO-2025-469,2025-07-14,138,4,Minor machining marks,Yes
+INS-057,PO-2025-469,2025-07-17,138,0,Passed,No
+INS-184,PO-2025-469,2025-07-18,243,9,Cosmetic only,No
+INS-171,PO-2025-480,2025-08-14,31,1,Surface scratches,No
+INS-007,PO-2025-480,2025-08-23,112,1,Minor surface finish issues,No
+INS-156,PO-2025-480,2025-09-03,174,5,Balance issues,Yes
+INS-021,PO-2025-490,2025-09-07,531,21,Blade damage in shipping,Yes
+INS-111,PO-2025-480,2025-09-12,154,28,Poor weld quality,Yes
+INS-116,PO-2025-490,2025-09-20,1076,16,Minor machining marks,No
+INS-067,PO-2025-490,2025-09-27,155,3,Calibration slightly off,Yes
+INS-130,PO-2025-501,2025-09-30,217,7,Cosmetic only,Yes
+INS-185,PO-2025-490,2025-10-05,198,3,Paint chips,Yes

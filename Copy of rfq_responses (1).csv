@@ -1,0 +1,93 @@
+rfq_id,supplier_name,part_description,quote_date,quoted_price,lead_time_weeks,notes
+RFQ-2021-001,AeroFlow Systems,Temperature Controller,2021-10-02,474.09,2,Stock item
+RFQ-2021-001,Precision Thermal Co,Temperature Controller,2021-10-04,454.44,4,Standard
+RFQ-2021-002,Stellar Metalworks,28 inch Fan High CFM,2021-11-03,415.45,5,Certified materials
+RFQ-2021-002,Apex Manufacturing Inc,28 inch Fan High CFM,2021-11-04,372.85,4,Available
+RFQ-2021-003,Precision Thermal Co,7.5HP Motor,2021-12-05,834.11,3,Available
+RFQ-2021-003,TitanForge LLC,7.5HP Motor,2021-12-06,799.15,6,Industrial grade
+RFQ-2022-004,Precision Thermal Co,PLC Control Module,2022-01-09,668.82,2,Available
+RFQ-2022-005,Stellar Metalworks,Vibration Mount,2022-02-08,32.25,4,Balanced & tested
+RFQ-2022-005,APEX MFG,Vibration Mount,2022-02-10,27.4,5,Industrial grade
+RFQ-2022-006,QuickFab Industries,24 inch Axial Fan,2022-03-13,196.7,3,Low cost option
+RFQ-2022-006,Apex Manufacturing Inc,24 inch Axial Fan,2022-03-15,249.78,2,Stock item
+RFQ-2022-006,Stellar Metalworks,24 inch Axial Fan,2022-03-15,260.34,3,Premium construction
+RFQ-2022-007,Apex Manufacturing Inc,Control Panel Enclosure,2022-04-14,244.0,3,Industrial grade
+RFQ-2022-007,Stellar Metalworks,Control Panel Enclosure,2022-04-15,271.91,3,Quality guaranteed
+RFQ-2022-008,Stellar Metalworks,Steel Bracket,2022-05-19,18.71,5,Premium quality
+RFQ-2022-008,QuickFab Industries,Steel Bracket,2022-05-19,11.28,4,Quick turnaround
+RFQ-2022-009,Apex Manufacturing Inc,28 inch Fan High CFM,2022-06-18,361.22,3,Standard
+RFQ-2022-009,Stellar Metalworks,28 inch Fan High CFM,2022-06-19,416.4,3,Premium construction
+RFQ-2022-010,QuickFab Industries,Aluminum Fins,2022-07-22,7.72,2,Bulk discount
+RFQ-2022-010,Apex Mfg,Aluminum Fins,2022-07-22,8.35,5,Available
+RFQ-2022-011,Precision Thermal Co,HEPA Filter Industrial,2022-08-22,68.65,6,Industrial grade
+RFQ-2022-011,AeroFlow Systems,HEPA Filter Industrial,2022-08-23,70.54,3,Industrial grade
+RFQ-2022-012,QuickFab Industries,Copper Heat Exchanger,2022-09-25,2153.54,2,Economy option
+RFQ-2022-012,AeroFlow Systems,Copper Heat Exchanger,2022-09-25,2427.53,3,Standard
+RFQ-2022-013,APEX MFG,Vibration Mount,2022-10-26,25.22,3,Standard lead time
+RFQ-2022-013,Stellar Metalworks,Vibration Mount,2022-10-26,31.09,4,Balanced & tested
+RFQ-2022-014,TitanForge LLC,Stainless Drive Shaft,2022-11-28,52.89,4,Industrial grade
+RFQ-2022-014,Stellar Metalworks,Stainless Drive Shaft,2022-11-29,61.36,5,Premium quality
+RFQ-2022-015,QuickFab Industries,Copper Fins Premium,2022-12-30,13.47,4,Bulk discount
+RFQ-2022-015,Apex Mfg,Copper Fins Premium,2022-12-31,15.82,5,Industrial grade
+RFQ-2023-016,QuickFab Industries,Aluminum Fins,2023-02-02,7.62,3,Fast delivery
+RFQ-2023-016,Apex Mfg,Aluminum Fins,2023-02-02,9.25,6,Standard production
+RFQ-2023-017,QuickFab Industries,Steel Bracket,2023-03-05,10.78,3,Bulk discount
+RFQ-2023-017,Stellar Metalworks,Steel Bracket,2023-03-07,19.54,4,Balanced & tested
+RFQ-2023-018,Precision Thermal Co,HEPA Filter Industrial,2023-04-06,65.4,3,Available
+RFQ-2023-018,AeroFlow Systems,HEPA Filter Industrial,2023-04-08,71.37,5,Stock item
+RFQ-2023-019,Apex Mfg,Aluminum Fins,2023-05-09,8.81,4,Standard production
+RFQ-2023-019,QuickFab Industries,Aluminum Fins,2023-05-11,7.51,3,Fast delivery
+RFQ-2023-020,AeroFlow Systems,Electric Damper 48 inch,2023-06-11,277.99,6,Standard
+RFQ-2023-021,Apex Manufacturing Inc,Mounting Brackets,2023-07-12,12.43,5,Available
+RFQ-2023-021,Stellar Metalworks,Mounting Brackets,2023-07-14,14.77,5,Balanced & tested
+RFQ-2023-022,Apex Manufacturing Inc,28 inch Fan High CFM,2023-08-14,369.84,5,Standard lead time
+RFQ-2023-022,Stellar Metalworks,28 inch Fan High CFM,2023-08-15,386.17,3,Premium quality
+RFQ-2023-023,Apex Manufacturing Inc,HX Fins Standard,2023-09-15,9.39,2,Standard production
+RFQ-2023-023,QuickFab Industries,HX Fins Standard,2023-09-16,8.05,3,Fast delivery
+RFQ-2023-024,APEX MFG,Vibration Mount,2023-10-20,25.67,4,Standard
+RFQ-2023-024,Stellar Metalworks,Vibration Mount,2023-10-20,31.58,3,Quality guaranteed
+RFQ-2023-025,TitanForge LLC,Aluminum Heat Exchanger,2023-11-19,1105.55,5,Standard lead time
+RFQ-2023-025,QuickFab Industries,Aluminum Heat Exchanger,2023-11-20,965.56,3,Low cost option
+RFQ-2023-025,APEX MFG,Aluminum Heat Exchanger,2023-11-20,1145.12,2,Standard production
+RFQ-2023-026,Precision Thermal Co,HEPA Filter Industrial,2023-12-22,64.25,4,Available
+RFQ-2023-026,AeroFlow Systems,HEPA Filter Industrial,2023-12-23,69.32,2,Standard
+RFQ-2024-027,Apex Manufacturing Inc,Control Panel Enclosure,2024-01-23,241.06,4,Standard lead time
+RFQ-2024-027,Stellar Metalworks,Control Panel Enclosure,2024-01-24,281.36,3,Premium quality
+RFQ-2024-028,Apex Mfg,Aluminum Fins,2024-02-26,10.61,2,Available
+RFQ-2024-028,QuickFab Industries,Aluminum Fins,2024-02-27,7.33,2,Fast delivery
+RFQ-2024-029,Precision Thermal Co,HEPA Filter Industrial,2024-03-28,69.79,5,Standard production
+RFQ-2024-029,AeroFlow Systems,HEPA Filter Industrial,2024-03-29,64.63,2,Available
+RFQ-2024-030,AeroFlow Systems,Temperature Controller,2024-04-30,474.19,6,Standard
+RFQ-2024-030,Precision Thermal Co,Temperature Controller,2024-04-30,476.26,2,Available
+RFQ-2024-031,Apex Manufacturing Inc,HX Fins Standard,2024-06-01,9.88,6,Available
+RFQ-2024-031,QuickFab Industries,HX Fins Standard,2024-06-03,8.51,2,Fast delivery
+RFQ-2024-032,APEX MFG,Vibration Mount,2024-07-03,27.98,4,Standard production
+RFQ-2024-032,Stellar Metalworks,Vibration Mount,2024-07-03,31.23,5,Certified materials
+RFQ-2024-033,Apex Mfg,Aluminum Fins,2024-08-06,10.83,6,Standard lead time
+RFQ-2024-033,QuickFab Industries,Aluminum Fins,2024-08-07,7.5,4,Quick turnaround
+RFQ-2024-034,APEX MFG,Vibration Mount,2024-09-06,25.54,5,Stock item
+RFQ-2024-034,Stellar Metalworks,Vibration Mount,2024-09-06,32.69,4,Balanced & tested
+RFQ-2024-035,Stellar Metalworks,Drive Shaft SS304,2024-10-11,39.97,5,Premium quality
+RFQ-2024-035,Apex Mfg,Drive Shaft SS304,2024-10-11,38.43,3,Standard production
+RFQ-2024-036,Apex Manufacturing Inc,Mounting Brackets,2024-11-10,13.24,5,Stock item
+RFQ-2024-036,Stellar Metalworks,Mounting Brackets,2024-11-12,13.87,5,Premium construction
+RFQ-2024-037,Stellar Metalworks,Steel Bracket,2024-12-13,17.77,4,Premium construction
+RFQ-2024-037,QuickFab Industries,Steel Bracket,2024-12-15,10.56,4,Bulk discount
+RFQ-2025-038,Stellar Metalworks,24 inch Axial Fan,2025-01-16,285.06,5,Premium construction
+RFQ-2025-038,Apex Manufacturing Inc,24 inch Axial Fan,2025-01-16,232.35,3,Available
+RFQ-2025-038,QuickFab Industries,24 inch Axial Fan,2025-01-16,191.49,3,Fast delivery
+RFQ-2025-039,Stellar Metalworks,30 inch Axial Fan,2025-02-16,344.64,3,Certified materials
+RFQ-2025-039,QuickFab Industries,30 inch Axial Fan,2025-02-16,270.09,2,Economy option
+RFQ-2025-039,Apex Mfg,30 inch Axial Fan,2025-02-17,301.25,6,Stock item
+RFQ-2025-040,Precision Thermal Co,Temperature Controller,2025-03-20,442.04,3,Standard lead time
+RFQ-2025-040,AeroFlow Systems,Temperature Controller,2025-03-21,452.77,6,Standard lead time
+RFQ-2025-041,Apex Mfg,Drive Shaft SS304,2025-04-21,35.6,3,Standard
+RFQ-2025-041,Stellar Metalworks,Drive Shaft SS304,2025-04-23,42.55,5,Quality guaranteed
+RFQ-2025-042,Precision Thermal Co,PLC Control Module,2025-05-24,657.4,2,Standard
+RFQ-2025-043,Stellar Metalworks,Vibration Mount,2025-06-25,31.83,5,Quality guaranteed
+RFQ-2025-043,APEX MFG,Vibration Mount,2025-06-26,28.81,4,Standard lead time
+RFQ-2025-044,APEX MFG,36 inch Axial Fan,2025-07-28,452.77,3,Available
+RFQ-2025-044,QuickFab Industries,36 inch Axial Fan,2025-07-29,373.08,2,Fast delivery
+RFQ-2025-044,Stellar Metalworks,36 inch Axial Fan,2025-07-29,478.93,4,Premium quality
+RFQ-2025-045,Apex Mfg,Aluminum Fins,2025-08-29,9.49,2,Industrial grade
+RFQ-2025-045,QuickFab Industries,Aluminum Fins,2025-08-31,7.67,4,Quick turnaround
