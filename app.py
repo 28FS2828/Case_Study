@@ -118,7 +118,6 @@ def load_data():
     ])
 
     # Manual overrides (normalized_key -> canonical_key)
-    # Keep minimal; only add when you see stubborn edge cases in QA
     manual_key_map = {
         "apex mfg": "apex manufacturing",
     }
@@ -245,6 +244,15 @@ supplier_master = supplier_master.fillna({
 })
 
 # =========================================================
+# NEW: UNIQUE SUPPLIER COUNTS (LEVEL-SET METRICS)
+# =========================================================
+st.subheader("📌 Data Coverage (Supplier Counts)")
+cA, cB = st.columns(2)
+cA.metric("Unique suppliers (orders raw)", int(orders["supplier_name"].nunique()))
+cB.metric("Unique suppliers (master table)", int(supplier_master["supplier_name"].nunique()))
+st.caption("If the master table count is lower, that’s usually because entity resolution merged duplicates.")
+
+# =========================================================
 # PERFORMANCE SCORING + FLAGS
 # =========================================================
 max_price = supplier_master["avg_price"].replace(0, pd.NA).max()
@@ -283,20 +291,19 @@ search_query = st.text_input(
     placeholder="e.g., Apex, Stellar, TitanForge..."
 )
 
-# Apply search filter for display tables
 filtered_master = apply_search(supplier_master, search_query)
 
 # =========================================================
 # DISPLAY TABLES (STANDARDIZED TOP_N)
 # =========================================================
-st.subheader("🏭 Unified Supplier Intelligence View (Top 10)")
+st.subheader(f"🏭 Unified Supplier Intelligence View (Top {TOP_N})")
 st.dataframe(with_rank(filtered_master.head(TOP_N)), use_container_width=True, hide_index=True)
 
 st.markdown(f"### 🔴 Highest Risk Suppliers (Top {TOP_N})")
-risk_tbl = supplier_master[supplier_master["risk_flag"].str.contains("🔴|🟠|🟡")]
-# show worst first: quality risk -> delivery -> cost, then by low score
+risk_tbl = supplier_master[supplier_master["risk_flag"].str.contains("🔴|🟠|🟡")].copy()
+
+# show worst first: quality -> delivery -> cost, then by low score
 severity_rank = {"🔴 Quality Risk": 0, "🟠 Delivery Risk": 1, "🟡 Cost Risk": 2, "🟢 Strategic": 3}
-risk_tbl = risk_tbl.copy()
 risk_tbl["_sev"] = risk_tbl["risk_flag"].map(severity_rank).fillna(9)
 risk_tbl = risk_tbl.sort_values(["_sev", "performance_score"], ascending=[True, True]).drop(columns=["_sev"])
 risk_tbl = apply_search(risk_tbl, search_query)
@@ -311,23 +318,19 @@ st.dataframe(with_rank(top_tbl.head(TOP_N)), use_container_width=True, hide_inde
 # =========================================================
 st.markdown("---")
 st.header("💰 Estimated Financial Impact (Prototype)")
-
 st.caption(
-    "These estimates will change as supplier identity resolution improves (merging duplicates changes spend, pricing benchmarks, and unit estimates)."
+    "These estimates update as supplier identity resolution improves (merging duplicates changes spend, pricing benchmarks, and unit estimates)."
 )
 
-# Use lowest non-zero avg RFQ as benchmark
 nonzero_prices = supplier_master["avg_price"].replace(0, pd.NA).dropna()
 lowest_price = nonzero_prices.min() if len(nonzero_prices) else pd.NA
 
-# Estimate units from spend/avg_price (only where avg_price > 0)
 supplier_master["est_units"] = 0.0
 mask_price = supplier_master["avg_price"] > 0
 supplier_master.loc[mask_price, "est_units"] = (
     supplier_master.loc[mask_price, "total_spend"] / supplier_master.loc[mask_price, "avg_price"]
 )
 
-# Overpay vs lowest benchmark
 supplier_master["estimated_overpay"] = 0.0
 if pd.notna(lowest_price):
     supplier_master["price_delta_vs_best"] = (supplier_master["avg_price"] - lowest_price).clip(lower=0)
@@ -339,11 +342,9 @@ else:
 
 total_overpay = float(supplier_master["estimated_overpay"].sum())
 
-# Defect cost model: placeholder (simple)
 supplier_master["defect_cost"] = supplier_master["total_spend"] * (supplier_master["defect_rate"] / 100.0) * 0.5
 total_defect_cost = float(supplier_master["defect_cost"].sum())
 
-# Delivery risk exposure: spend for suppliers below 85% on-time
 late_spend = float(supplier_master.loc[supplier_master["on_time_rate"] < 85, "total_spend"].sum())
 
 c1, c2, c3 = st.columns(3)
