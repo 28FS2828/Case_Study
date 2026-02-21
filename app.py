@@ -264,7 +264,6 @@ supplier_master = supplier_master.sort_values("performance_score", ascending=Fal
 # =========================================================
 st.subheader("🔎 Search Suppliers")
 search_query = st.text_input("Search by supplier name", placeholder="e.g., Apex, Stellar, TitanForge...")
-
 filtered_master = apply_search(supplier_master, search_query)
 
 # =========================================================
@@ -316,40 +315,61 @@ else:
     st.caption("Model: benchmark against lowest non-zero avg RFQ price; units approximated as spend / avg_price.")
 
 # =========================================================
-# 📊 EXECUTIVE CHART (CLEANER)
+# 📊 EXECUTIVE CHART (LOG SPEND + QUADRANTS)
 # =========================================================
 st.markdown("---")
 st.header("📊 Supplier Risk vs Spend (Executive View)")
 
-# Build chart dataframe with readable scales + labels
 chart_df = supplier_master.copy()
-chart_df["spend_m"] = (chart_df["total_spend"] / 1_000_000).round(2)
 chart_df["label"] = chart_df["supplier_name"].apply(lambda x: short_label(x, 20))
-
-# Hard clamp for visual sanity (score should already be ~0–100)
 chart_df["performance_score"] = chart_df["performance_score"].clip(0, 100)
 
-base = alt.Chart(chart_df).encode(
-    x=alt.X("performance_score:Q", title="Performance Score (0–100)", scale=alt.Scale(domain=[0, 100])),
-    y=alt.Y("spend_m:Q", title="Total Spend ($M)"),
+# Quadrant thresholds (medians are clean for exec storytelling)
+x_cut = float(chart_df["performance_score"].median()) if len(chart_df) else 50.0
+y_cut = float(chart_df["total_spend"].median()) if len(chart_df) else 0.0
+
+base = alt.Chart(chart_df)
+
+# Points
+points = base.mark_circle(size=190, opacity=0.9).encode(
+    x=alt.X(
+        "performance_score:Q",
+        title=f"Performance Score (0–100) | Median = {x_cut:.1f}",
+        scale=alt.Scale(domain=[0, 100], nice=False),
+        axis=alt.Axis(tickCount=6)
+    ),
+    y=alt.Y(
+        "total_spend:Q",
+        title=f"Total Spend ($) | Median = ${y_cut:,.0f}  (log scale)",
+        scale=alt.Scale(type="log", domainMin=max(1, float(chart_df["total_spend"].min() if len(chart_df) else 1))),
+        axis=alt.Axis(format="~s")  # 1k, 1M, 10M
+    ),
     color=alt.Color("risk_flag:N", title="Risk Flag"),
     tooltip=[
         alt.Tooltip("supplier_name:N", title="Supplier"),
         alt.Tooltip("total_spend:Q", title="Total Spend ($)", format=",.0f"),
-        alt.Tooltip("spend_m:Q", title="Total Spend ($M)", format=",.2f"),
         alt.Tooltip("performance_score:Q", title="Performance Score", format=",.1f"),
         alt.Tooltip("on_time_rate:Q", title="On-Time %", format=",.1f"),
         alt.Tooltip("defect_rate:Q", title="Defect %", format=",.1f"),
+        alt.Tooltip("avg_price:Q", title="Avg RFQ Price", format=",.2f"),
         alt.Tooltip("risk_flag:N", title="Risk"),
     ],
 )
 
-points = base.mark_circle(size=180, opacity=0.9)
-labels = base.mark_text(align="left", dx=8, dy=0).encode(text="label:N")
+# Labels
+labels = base.mark_text(align="left", dx=8, dy=0).encode(
+    x="performance_score:Q",
+    y="total_spend:Q",
+    text="label:N"
+)
 
-st.altair_chart((points + labels).interactive(), use_container_width=True)
+# Quadrant lines
+vline = alt.Chart(pd.DataFrame({"x": [x_cut]})).mark_rule(strokeDash=[6, 6]).encode(x="x:Q")
+hline = alt.Chart(pd.DataFrame({"y": [y_cut]})).mark_rule(strokeDash=[6, 6]).encode(y="y:Q")
 
-st.caption("Up and to the right = higher spend and higher performance. High spend + low performance (upper-left) is the priority zone.")
+st.altair_chart((points + labels + vline + hline), use_container_width=True)
+
+st.caption("Priority zone = **High spend + below-median performance** (upper-left quadrant). Log scale makes smaller suppliers readable next to the biggest one.")
 
 # =========================================================
 # 💰 FINANCIAL IMPACT (PROTOTYPE ESTIMATES)
@@ -379,10 +399,8 @@ else:
     supplier_master["price_delta_vs_best"] = 0.0
 
 total_overpay = float(supplier_master["estimated_overpay"].sum())
-
 supplier_master["defect_cost"] = supplier_master["total_spend"] * (supplier_master["defect_rate"] / 100.0) * 0.5
 total_defect_cost = float(supplier_master["defect_cost"].sum())
-
 late_spend = float(supplier_master.loc[supplier_master["on_time_rate"] < 85, "total_spend"].sum())
 
 c1, c2, c3 = st.columns(3)
@@ -414,3 +432,4 @@ with st.expander("Debug: show column names"):
     st.write("Orders columns:", list(orders.columns))
     st.write("Quality columns:", list(quality.columns))
     st.write("RFQ columns:", list(rfqs.columns))
+    
