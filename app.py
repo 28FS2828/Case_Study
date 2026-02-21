@@ -13,6 +13,14 @@ st.markdown("---")
 TOP_N = 10  # Standardize row counts across tables
 
 # =========================================================
+# CONSISTENT RISK COLOR MAP (charts match table semantics)
+# =========================================================
+RISK_ORDER = ["🔴 Quality Risk", "🟠 Delivery Risk", "🟡 Cost Risk", "🟢 Strategic"]
+RISK_COLORS = ["#D62728", "#FF7F0E", "#F2C12E", "#2CA02C"]  # red, orange, gold, green
+
+risk_color_scale = alt.Scale(domain=RISK_ORDER, range=RISK_COLORS)
+
+# =========================================================
 # ENTITY RESOLUTION HELPERS
 # =========================================================
 LEGAL_SUFFIXES = {
@@ -27,7 +35,6 @@ def normalize_supplier_key(name: str) -> str:
     s = str(name).lower().strip()
     s = re.sub(r"[^a-z0-9\s]", " ", s)      # punctuation -> spaces
     s = re.sub(r"\s+", " ", s).strip()     # collapse whitespace
-
     parts = s.split(" ")
     while parts and parts[-1] in LEGAL_SUFFIXES:
         parts = parts[:-1]
@@ -98,10 +105,6 @@ def apply_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
 def cap_top_n(df: pd.DataFrame, n: int) -> pd.DataFrame:
     return df.head(n) if len(df) > n else df
 
-def short_label(name: str, max_len: int = 18) -> str:
-    s = str(name)
-    return s if len(s) <= max_len else s[: max_len - 1] + "…"
-
 # =========================================================
 # LOAD + CLEAN DATA
 # =========================================================
@@ -149,7 +152,7 @@ except Exception as e:
     st.stop()
 
 # =========================================================
-# DEFINITIONS / SCORING
+# DEFINITIONS / SCORING (EXPLAINABILITY PANEL)
 # =========================================================
 with st.expander("ℹ️ Definitions & Scoring (how to interpret the dashboard)", expanded=False):
     st.markdown(
@@ -223,7 +226,7 @@ supplier_master = (
 ).fillna({"on_time_rate": 0.0, "defect_rate": 0.0, "avg_price": 0.0})
 
 # =========================================================
-# UNIQUE SUPPLIER COUNTS
+# UNIQUE SUPPLIER COUNTS (LEVEL-SET METRICS)
 # =========================================================
 st.subheader("📌 Data Coverage (Supplier Counts)")
 cA, cB = st.columns(2)
@@ -232,7 +235,7 @@ cB.metric("Unique suppliers (master table)", int(supplier_master["supplier_name"
 st.caption("If the master table count is lower, entity resolution merged duplicates into a single supplier record.")
 
 # =========================================================
-# SCORING + RISK FLAGS
+# PERFORMANCE SCORING + FLAGS
 # =========================================================
 max_price = supplier_master["avg_price"].replace(0, pd.NA).max()
 if pd.notna(max_price) and max_price > 0:
@@ -267,7 +270,7 @@ search_query = st.text_input("Search by supplier name", placeholder="e.g., Apex,
 filtered_master = apply_search(supplier_master, search_query)
 
 # =========================================================
-# DISPLAY TABLES
+# DISPLAY TABLES (STANDARDIZED TOP_N)
 # =========================================================
 st.subheader(f"🏭 Unified Supplier Intelligence View (Top {TOP_N})")
 st.dataframe(with_rank(cap_top_n(filtered_master, TOP_N)), use_container_width=True, hide_index=True)
@@ -295,7 +298,6 @@ if pricing_pool.empty:
     st.warning("No RFQ pricing available (avg_price > 0) — cannot estimate consolidation savings.")
 else:
     best_price = float(pricing_pool["avg_price"].min())
-
     tmp = supplier_master.copy()
     tmp["price_delta_vs_best"] = (tmp["avg_price"] - best_price).clip(lower=0)
     tmp["est_units"] = 0.0
@@ -315,61 +317,82 @@ else:
     st.caption("Model: benchmark against lowest non-zero avg RFQ price; units approximated as spend / avg_price.")
 
 # =========================================================
-# 📊 EXECUTIVE CHART (LOG SPEND + QUADRANTS)
+# ✅ EXECUTIVE VISUALS (REPLACES SCATTER)
 # =========================================================
 st.markdown("---")
-st.header("📊 Supplier Risk vs Spend (Executive View)")
+st.header("📊 Executive Supplier Snapshot")
 
-chart_df = supplier_master.copy()
-chart_df["label"] = chart_df["supplier_name"].apply(lambda x: short_label(x, 20))
-chart_df["performance_score"] = chart_df["performance_score"].clip(0, 100)
+viz_df = supplier_master.copy()
+viz_df["spend_m"] = (viz_df["total_spend"] / 1_000_000).round(2)
+viz_df["supplier_label"] = viz_df["supplier_name"]
 
-# Quadrant thresholds (medians are clean for exec storytelling)
-x_cut = float(chart_df["performance_score"].median()) if len(chart_df) else 50.0
-y_cut = float(chart_df["total_spend"].median()) if len(chart_df) else 0.0
-
-base = alt.Chart(chart_df)
-
-# Points
-points = base.mark_circle(size=190, opacity=0.9).encode(
-    x=alt.X(
-        "performance_score:Q",
-        title=f"Performance Score (0–100) | Median = {x_cut:.1f}",
-        scale=alt.Scale(domain=[0, 100], nice=False),
-        axis=alt.Axis(tickCount=6)
-    ),
-    y=alt.Y(
-        "total_spend:Q",
-        title=f"Total Spend ($) | Median = ${y_cut:,.0f}  (log scale)",
-        scale=alt.Scale(type="log", domainMin=max(1, float(chart_df["total_spend"].min() if len(chart_df) else 1))),
-        axis=alt.Axis(format="~s")  # 1k, 1M, 10M
-    ),
-    color=alt.Color("risk_flag:N", title="Risk Flag"),
-    tooltip=[
-        alt.Tooltip("supplier_name:N", title="Supplier"),
-        alt.Tooltip("total_spend:Q", title="Total Spend ($)", format=",.0f"),
-        alt.Tooltip("performance_score:Q", title="Performance Score", format=",.1f"),
-        alt.Tooltip("on_time_rate:Q", title="On-Time %", format=",.1f"),
-        alt.Tooltip("defect_rate:Q", title="Defect %", format=",.1f"),
-        alt.Tooltip("avg_price:Q", title="Avg RFQ Price", format=",.2f"),
-        alt.Tooltip("risk_flag:N", title="Risk"),
-    ],
+# ---- Bar 1: Spend ($M)
+st.subheader("Spend by Supplier ($M)")
+spend_chart = (
+    alt.Chart(viz_df)
+    .mark_bar()
+    .encode(
+        y=alt.Y("supplier_label:N", sort="-x", title=None),
+        x=alt.X("spend_m:Q", title="Total Spend ($M)"),
+        color=alt.Color("risk_flag:N", scale=risk_color_scale, legend=alt.Legend(title="Risk Flag")),
+        tooltip=[
+            alt.Tooltip("supplier_name:N", title="Supplier"),
+            alt.Tooltip("total_spend:Q", title="Total Spend ($)", format=",.0f"),
+            alt.Tooltip("spend_m:Q", title="Total Spend ($M)", format=",.2f"),
+            alt.Tooltip("risk_flag:N", title="Risk"),
+        ],
+    )
 )
+st.altair_chart(spend_chart, use_container_width=True)
 
-# Labels
-labels = base.mark_text(align="left", dx=8, dy=0).encode(
-    x="performance_score:Q",
-    y="total_spend:Q",
-    text="label:N"
+# ---- Bar 2: Performance Score (0–100)
+st.subheader("Performance Score by Supplier (0–100)")
+perf_chart = (
+    alt.Chart(viz_df)
+    .mark_bar()
+    .encode(
+        y=alt.Y("supplier_label:N", sort="-x", title=None),
+        x=alt.X("performance_score:Q", title="Performance Score", scale=alt.Scale(domain=[0, 100])),
+        color=alt.Color("risk_flag:N", scale=risk_color_scale, legend=None),
+        tooltip=[
+            alt.Tooltip("supplier_name:N", title="Supplier"),
+            alt.Tooltip("performance_score:Q", title="Performance Score", format=",.1f"),
+            alt.Tooltip("on_time_rate:Q", title="On-Time %", format=",.1f"),
+            alt.Tooltip("defect_rate:Q", title="Defect %", format=",.1f"),
+            alt.Tooltip("avg_price:Q", title="Avg RFQ Price", format=",.2f"),
+            alt.Tooltip("risk_flag:N", title="Risk"),
+        ],
+    )
 )
+st.altair_chart(perf_chart, use_container_width=True)
 
-# Quadrant lines
-vline = alt.Chart(pd.DataFrame({"x": [x_cut]})).mark_rule(strokeDash=[6, 6]).encode(x="x:Q")
-hline = alt.Chart(pd.DataFrame({"y": [y_cut]})).mark_rule(strokeDash=[6, 6]).encode(y="y:Q")
+# ---- Priority Quadrant Table
+st.subheader("Priority Quadrant (Simple + Executive-Friendly)")
+x_cut = float(viz_df["performance_score"].median()) if len(viz_df) else 50.0
+y_cut = float(viz_df["total_spend"].median()) if len(viz_df) else 0.0
 
-st.altair_chart((points + labels + vline + hline), use_container_width=True)
+quad = viz_df.copy()
+quad["spend_bucket"] = quad["total_spend"].apply(lambda v: "High Spend" if v >= y_cut else "Low Spend")
+quad["perf_bucket"] = quad["performance_score"].apply(lambda v: "Low Performance" if v < x_cut else "High Performance")
+quad["quadrant"] = quad["spend_bucket"] + " / " + quad["perf_bucket"]
 
-st.caption("Priority zone = **High spend + below-median performance** (upper-left quadrant). Log scale makes smaller suppliers readable next to the biggest one.")
+quad_order = [
+    "High Spend / Low Performance",
+    "High Spend / High Performance",
+    "Low Spend / Low Performance",
+    "Low Spend / High Performance",
+]
+
+quad = quad.sort_values(["total_spend"], ascending=False)
+quad["quadrant"] = pd.Categorical(quad["quadrant"], categories=quad_order, ordered=True)
+quad = quad.sort_values(["quadrant", "total_spend"], ascending=[True, False])
+
+st.caption(f"Median cutoffs: Performance = {x_cut:.1f}, Spend = ${y_cut:,.0f}. Primary focus = **High Spend / Low Performance**.")
+st.dataframe(
+    quad[["quadrant", "supplier_name", "total_spend", "performance_score", "risk_flag", "on_time_rate", "defect_rate", "avg_price"]],
+    use_container_width=True,
+    hide_index=True
+)
 
 # =========================================================
 # 💰 FINANCIAL IMPACT (PROTOTYPE ESTIMATES)
@@ -432,4 +455,3 @@ with st.expander("Debug: show column names"):
     st.write("Orders columns:", list(orders.columns))
     st.write("Quality columns:", list(quality.columns))
     st.write("RFQ columns:", list(rfqs.columns))
-    
