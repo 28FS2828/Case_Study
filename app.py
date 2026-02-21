@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 import streamlit as st
 
@@ -6,10 +7,61 @@ st.title("🚀 Hoth Industries: Supplier Intelligence Hub")
 st.markdown("---")
 
 # -------------------------------
-# Helpers
+# Entity Resolution Helpers
+# -------------------------------
+LEGAL_SUFFIXES = {
+    "inc", "incorporated", "llc", "l.l.c", "ltd", "limited",
+    "corp", "corporation", "co", "company", "gmbh", "s.a", "sa"
+}
+
+def normalize_supplier_key(name: str) -> str:
+    """Stable normalization key for entity resolution (no extra libs)."""
+    if pd.isna(name):
+        return ""
+    s = str(name).lower().strip()
+
+    # punctuation -> spaces
+    s = re.sub(r"[^a-z0-9\s]", " ", s)
+
+    # collapse whitespace
+    s = re.sub(r"\s+", " ", s).strip()
+
+    # drop common legal suffixes at the end (repeat for multiple)
+    parts = s.split(" ")
+    while parts and parts[-1] in LEGAL_SUFFIXES:
+        parts = parts[:-1]
+    return " ".join(parts).strip()
+
+def apply_entity_resolution(df: pd.DataFrame, col: str, manual_key_map: dict | None = None) -> pd.DataFrame:
+    """Resolve near-duplicate supplier entities using normalized keys + optional manual overrides."""
+    if col not in df.columns:
+        return df
+
+    out = df.copy()
+    out[col] = out[col].astype(str).str.strip()
+
+    out["_supplier_key"] = out[col].apply(normalize_supplier_key)
+
+    # Optional: manual overrides map normalized_key -> canonical_key
+    if manual_key_map:
+        out["_supplier_key"] = out["_supplier_key"].replace(manual_key_map)
+
+    # Pick canonical display name per key = most frequent original name (post-trim)
+    canonical = (
+        out.groupby("_supplier_key")[col]
+           .agg(lambda x: x.value_counts().index[0])
+           .to_dict()
+    )
+
+    out[col] = out["_supplier_key"].map(canonical).fillna(out[col])
+    out = out.drop(columns=["_supplier_key"])
+    return out
+
+# -------------------------------
+# General Helpers
 # -------------------------------
 def read_csv_flexible(candidates):
-    """Try multiple filenames (useful for Streamlit Cloud vs local copies)."""
+    """Try multiple filenames (Streamlit Cloud vs local copies)."""
     last_err = None
     for f in candidates:
         try:
@@ -46,25 +98,20 @@ def load_data():
         "rfq_responses.csv",
     ])
 
-    # --- Normalize supplier names (extend as needed) ---
-    canonical_apex = "Apex Manufacturing Inc"
-    name_map = {
-        "APEX MFG": canonical_apex,
-        "Apex Mfg": canonical_apex,
-        "Apex Manufacturing": canonical_apex,
-        "APEX Manufacturing": canonical_apex,
-        "APEX Manufacturing Inc": canonical_apex,
-        "Apex Manufacturing Inc": canonical_apex,
+    # -------------------------------
+    # Entity Resolution (strong)
+    # -------------------------------
+    # Manual overrides: normalized_key -> canonical_key
+    # Add entries here if Entity Resolution QA shows stubborn edge cases
+    manual_key_map = {
+        # Example patterns (keep minimal; only add when you see issues)
+        # "apex mfg": "apex manufacturing",
+        # "apex manufacturing inc": "apex manufacturing",
     }
 
-    if "supplier_name" in orders.columns:
-        orders["supplier_name"] = orders["supplier_name"].replace(name_map).astype(str).str.strip()
-
-    if "supplier_name" in rfqs.columns:
-        rfqs["supplier_name"] = rfqs["supplier_name"].replace(name_map).astype(str).str.strip()
-
-    if "supplier_name" in quality.columns:
-        quality["supplier_name"] = quality["supplier_name"].replace(name_map).astype(str).str.strip()
+    orders = apply_entity_resolution(orders, "supplier_name", manual_key_map)
+    rfqs   = apply_entity_resolution(rfqs, "supplier_name", manual_key_map)
+    quality = apply_entity_resolution(quality, "supplier_name", manual_key_map)  # only if present
 
     # Dates
     orders = safe_to_datetime(orders, "order_date")
@@ -77,15 +124,41 @@ def load_data():
 
 try:
     orders, quality, rfqs = load_data()
-    st.success("✅ Data loaded & supplier names normalized")
+    st.success("✅ Data loaded & supplier names normalized (entity resolution applied)")
 except Exception as e:
     st.error(f"Error loading data: {e}")
     st.stop()
 
 # -------------------------------
+# Entity Resolution QA (optional but great for interview)
+# -------------------------------
+with st.expander("🧼 Entity Resolution QA (show potential duplicates)"):
+    if "supplier_name" not in orders.columns:
+        st.write("Orders file does not contain supplier_name.")
+    else:
+        raw = orders["supplier_name"].astype(str).str.strip()
+        keys = raw.apply(normalize_supplier_key)
+
+        # show any keys that map to multiple raw values
+        tmp = pd.DataFrame({"supplier_name_raw": raw, "normalized_key": keys})
+        counts = tmp.groupby("normalized_key")["supplier_name_raw"].nunique().reset_index(name="raw_name_variants")
+        multi = counts[counts["raw_name_variants"] > 1].sort_values("raw_name_variants", ascending=False)
+
+        if multi.empty:
+            st.write("✅ No potential duplicates detected via normalization key.")
+        else:
+            st.write("Potential duplicates (multiple raw names collapsing to same normalized key):")
+            show_keys = multi["normalized_key"].head(20).tolist()
+            st.dataframe(
+                tmp[tmp["normalized_key"].isin(show_keys)]
+                  .sort_values(["normalized_key", "supplier_name_raw"]),
+                use_container_width=True
+            )
+            st.caption("If any are true duplicates that didn't merge cleanly, add a manual_key_map entry in load_data().")
+
+# -------------------------------
 # KPI CALCULATIONS
 # -------------------------------
-
 # Spend
 if "po_amount" not in orders.columns:
     st.error("Expected 'po_amount' column in orders but didn't find it.")
@@ -110,7 +183,7 @@ on_time = orders_kpi.groupby("supplier_name", dropna=False)["on_time"].mean().re
 on_time["on_time_rate"] = (on_time["on_time"] * 100).round(1)
 on_time = on_time.drop(columns=["on_time"])
 
-# Defect rate: join quality -> orders by order_id (quality may not have supplier_name)
+# Defect rate: join quality -> orders by order_id
 if "order_id" not in quality.columns or "order_id" not in orders.columns:
     st.error("Expected 'order_id' in both orders and quality datasets.")
     st.stop()
@@ -210,24 +283,26 @@ st.header("💰 Estimated Financial Impact (Prototype)")
 nonzero_prices = supplier_master["avg_price"].replace(0, pd.NA).dropna()
 lowest_price = nonzero_prices.min() if len(nonzero_prices) else pd.NA
 
-# Estimate volume from spend/avg_price (only where avg_price > 0)
+# Estimate units from spend/avg_price (only where avg_price > 0)
 supplier_master["est_units"] = 0.0
 mask_price = supplier_master["avg_price"] > 0
 supplier_master.loc[mask_price, "est_units"] = (
     supplier_master.loc[mask_price, "total_spend"] / supplier_master.loc[mask_price, "avg_price"]
 )
 
-# Overpay vs lowest benchmark (only where benchmark exists)
+# Overpay vs lowest benchmark
 supplier_master["estimated_overpay"] = 0.0
 if pd.notna(lowest_price):
     supplier_master["price_delta_vs_best"] = (supplier_master["avg_price"] - lowest_price).clip(lower=0)
-    supplier_master["estimated_overpay"] = (supplier_master["price_delta_vs_best"] * supplier_master["est_units"]).fillna(0)
+    supplier_master["estimated_overpay"] = (
+        supplier_master["price_delta_vs_best"] * supplier_master["est_units"]
+    ).fillna(0)
 else:
     supplier_master["price_delta_vs_best"] = 0.0
 
 total_overpay = float(supplier_master["estimated_overpay"].sum())
 
-# Defect cost model: assume 0.5x of defective spend as rework/expedite impact (simple placeholder)
+# Defect cost model: placeholder (simple)
 supplier_master["defect_cost"] = supplier_master["total_spend"] * (supplier_master["defect_rate"] / 100.0) * 0.5
 total_defect_cost = float(supplier_master["defect_cost"].sum())
 
@@ -241,7 +316,6 @@ c3.metric("Spend Exposed to Delivery Risk", f"${late_spend:,.0f}")
 
 st.caption("Modeled estimates for prototype demonstration (assumptions intentionally simple).")
 
-# Optional: show the impact drivers table
 with st.expander("Show impact drivers by supplier"):
     impact_cols = [
         "supplier_name",
@@ -254,9 +328,11 @@ with st.expander("Show impact drivers by supplier"):
         "on_time_rate",
         "risk_flag",
     ]
-    st.dataframe(supplier_master[impact_cols].sort_values("estimated_overpay", ascending=False), use_container_width=True)
+    st.dataframe(
+        supplier_master[impact_cols].sort_values("estimated_overpay", ascending=False),
+        use_container_width=True
+    )
 
-# Debug
 with st.expander("Debug: show column names"):
     st.write("Orders columns:", list(orders.columns))
     st.write("Quality columns:", list(quality.columns))
