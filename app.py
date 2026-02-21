@@ -28,7 +28,10 @@ def normalize_supplier_key(name: str) -> str:
     return " ".join(parts).strip()
 
 def apply_entity_resolution(df: pd.DataFrame, col: str, manual_key_map: dict | None = None) -> pd.DataFrame:
-    """Resolve near-duplicate supplier entities using normalized keys + optional manual overrides."""
+    """
+    Resolve near-duplicate supplier entities using normalized keys + optional manual overrides.
+    Canonical naming rule: ALWAYS choose the longest (most complete) company name.
+    """
     if col not in df.columns:
         return df
 
@@ -39,10 +42,17 @@ def apply_entity_resolution(df: pd.DataFrame, col: str, manual_key_map: dict | N
     if manual_key_map:
         out["_supplier_key"] = out["_supplier_key"].replace(manual_key_map)
 
-    # Canonical display name per key = most frequent original name
+    def pick_longest_name(values):
+        vals = [v for v in values if isinstance(v, str) and v.strip()]
+        vals = list(set([v.strip() for v in vals]))
+        if not vals:
+            return ""
+        vals.sort(key=lambda x: (-len(x), x))  # longest first, then alphabetical
+        return vals[0]
+
     canonical = (
         out.groupby("_supplier_key")[col]
-           .agg(lambda x: x.value_counts().index[0])
+           .agg(pick_longest_name)
            .to_dict()
     )
 
@@ -91,24 +101,21 @@ def load_data():
         "rfq_responses.csv",
     ])
 
-    # -------------------------------
-    # Entity Resolution (manual overrides)
-    # normalized_key -> canonical_key
-    # -------------------------------
+    # Manual overrides: normalized_key -> canonical_key (keep minimal; only add when needed)
     manual_key_map = {
-        "apex mfg": "apex manufacturing",   # ✅ fixes APEX MFG vs APEX Manufacturing Inc
+        # "apex mfg": "apex manufacturing",
     }
 
-    orders = apply_entity_resolution(orders, "supplier_name", manual_key_map)
-    rfqs   = apply_entity_resolution(rfqs, "supplier_name", manual_key_map)
+    orders  = apply_entity_resolution(orders,  "supplier_name", manual_key_map)
+    rfqs    = apply_entity_resolution(rfqs,    "supplier_name", manual_key_map)
     quality = apply_entity_resolution(quality, "supplier_name", manual_key_map)  # only if present
 
     # Dates
-    orders = safe_to_datetime(orders, "order_date")
-    orders = safe_to_datetime(orders, "promised_date")
-    orders = safe_to_datetime(orders, "actual_delivery_date")
+    orders  = safe_to_datetime(orders,  "order_date")
+    orders  = safe_to_datetime(orders,  "promised_date")
+    orders  = safe_to_datetime(orders,  "actual_delivery_date")
     quality = safe_to_datetime(quality, "inspection_date")
-    rfqs = safe_to_datetime(rfqs, "quote_date")
+    rfqs    = safe_to_datetime(rfqs,    "quote_date")
 
     return orders, quality, rfqs
 
@@ -161,7 +168,7 @@ if "supplier_name" not in orders.columns:
 spend = orders.groupby("supplier_name", dropna=False)["po_amount"].sum().reset_index()
 spend.columns = ["supplier_name", "total_spend"]
 
-# On-time rate from dates
+# On-time rate
 required_cols = {"promised_date", "actual_delivery_date"}
 if not required_cols.issubset(set(orders.columns)):
     st.error("Expected 'promised_date' and 'actual_delivery_date' columns in orders.")
@@ -173,7 +180,7 @@ on_time = orders_kpi.groupby("supplier_name", dropna=False)["on_time"].mean().re
 on_time["on_time_rate"] = (on_time["on_time"] * 100).round(1)
 on_time = on_time.drop(columns=["on_time"])
 
-# Defect rate: join quality -> orders by order_id
+# Defect rate (quality -> orders by order_id)
 if "order_id" not in quality.columns or "order_id" not in orders.columns:
     st.error("Expected 'order_id' in both orders and quality datasets.")
     st.stop()
@@ -249,22 +256,40 @@ supplier_master["risk_flag"] = supplier_master.apply(risk_flag, axis=1)
 supplier_master = supplier_master.sort_values("performance_score", ascending=False)
 
 # -------------------------------
-# Display Tables (add a titled first column)
+# Display Helpers
 # -------------------------------
 def with_rank(df: pd.DataFrame) -> pd.DataFrame:
     out = df.reset_index(drop=True).copy()
     out.insert(0, "Rank", range(1, len(out) + 1))
     return out
 
+def apply_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
+    if not query:
+        return df
+    q = query.strip().lower()
+    return df[df["supplier_name"].astype(str).str.lower().str.contains(q, na=False)]
+
+# -------------------------------
+# Search UI
+# -------------------------------
+st.subheader("🔎 Search Suppliers")
+search_query = st.text_input("Search by supplier name", placeholder="e.g., Apex, Stellar, TitanForge...")
+
+# -------------------------------
+# Display: Unified view + slices (search-aware)
+# -------------------------------
 st.subheader("🏭 Unified Supplier Intelligence View")
-st.dataframe(with_rank(supplier_master), use_container_width=True, hide_index=True)
+filtered_master = apply_search(supplier_master, search_query)
+st.dataframe(with_rank(filtered_master), use_container_width=True, hide_index=True)
 
 st.markdown("### 🔴 Highest Risk Suppliers")
 risk_tbl = supplier_master[supplier_master["risk_flag"].str.contains("🔴|🟠")]
+risk_tbl = apply_search(risk_tbl, search_query)
 st.dataframe(with_rank(risk_tbl), use_container_width=True, hide_index=True)
 
 st.markdown("### 🟢 Top Performing Suppliers")
-st.dataframe(with_rank(supplier_master.head(5)), use_container_width=True, hide_index=True)
+top_tbl = apply_search(supplier_master.head(5), search_query)
+st.dataframe(with_rank(top_tbl), use_container_width=True, hide_index=True)
 
 # -------------------------------
 # 💰 Financial Impact Estimation (prototype-level)
@@ -309,11 +334,13 @@ with st.expander("Show impact drivers by supplier"):
         "supplier_name",
         "total_spend",
         "avg_price",
+        "price_score",
         "price_delta_vs_best",
         "estimated_overpay",
         "defect_rate",
         "defect_cost",
         "on_time_rate",
+        "performance_score",
         "risk_flag",
     ]
     st.dataframe(
