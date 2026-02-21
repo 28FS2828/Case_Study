@@ -94,6 +94,9 @@ def apply_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
     q = query.strip().lower()
     return df[df["supplier_name"].astype(str).str.lower().str.contains(q, na=False)]
 
+def cap_top_n(df: pd.DataFrame, n: int) -> pd.DataFrame:
+    return df.head(n) if len(df) > n else df
+
 # =========================================================
 # LOAD + CLEAN DATA
 # =========================================================
@@ -141,6 +144,39 @@ try:
 except Exception as e:
     st.error(f"Error loading data: {e}")
     st.stop()
+
+# =========================================================
+# DEFINITIONS / SCORING (EXPLAINABILITY PANEL)
+# =========================================================
+with st.expander("ℹ️ Definitions & Scoring (how to interpret the dashboard)", expanded=False):
+    st.markdown(
+        """
+**Core KPIs**
+- **total_spend**: Total purchase order spend per supplier (sum of `po_amount`).
+- **on_time_rate**: % of orders delivered on or before the promised date.  
+  *Computed as:* `(actual_delivery_date <= promised_date)` averaged per supplier.
+- **defect_rate**: % of inspected parts rejected.  
+  *Computed as:* `parts_rejected / parts_inspected` averaged per supplier (then converted to %).
+- **avg_price**: Average quoted price per supplier from RFQ responses.
+
+**Scores**
+- **price_score (0–100)**: Lower `avg_price` → higher score.  
+  *Computed as:* `100 * (1 - avg_price / max_avg_price)` (clipped to 0–100).  
+  If a supplier has no RFQ price (`avg_price = 0`), we currently treat that as **missing** for pricing.
+- **performance_score (0–100-ish)**: Weighted composite to rank suppliers (higher = better).  
+  *Computed as:*  
+  `0.45 * on_time_rate + 0.35 * (100 - defect_rate) + 0.20 * price_score`
+
+**Risk Flags**
+- 🔴 **Quality Risk**: `defect_rate >= 8%`
+- 🟠 **Delivery Risk**: `on_time_rate <= 85%`
+- 🟡 **Cost Risk**: `price_score <= 40` (relatively expensive vs peers)
+- 🟢 **Strategic**: none of the above flags triggered
+
+**Prototype note**
+- Financial impact metrics are **modeled estimates** and will change as entity resolution improves (merging duplicates changes spend, price benchmarks, and unit estimates).
+        """
+    )
 
 # =========================================================
 # ENTITY RESOLUTION QA
@@ -255,6 +291,7 @@ st.caption("If the master table count is lower, entity resolution merged duplica
 # =========================================================
 # PERFORMANCE SCORING + FLAGS
 # =========================================================
+# price_score: lower avg_price -> higher score (0-100). avg_price=0 is treated as missing and scored as 0.
 max_price = supplier_master["avg_price"].replace(0, pd.NA).max()
 if pd.notna(max_price) and max_price > 0:
     supplier_master["price_score"] = 100 * (1 - (supplier_master["avg_price"] / max_price))
@@ -262,6 +299,7 @@ if pd.notna(max_price) and max_price > 0:
 else:
     supplier_master["price_score"] = 0.0
 
+# performance_score: higher is better (0–100-ish)
 supplier_master["performance_score"] = (
     (supplier_master["on_time_rate"] * 0.45) +
     ((100 - supplier_master["defect_rate"]) * 0.35) +
@@ -297,21 +335,19 @@ filtered_master = apply_search(supplier_master, search_query)
 # DISPLAY TABLES (STANDARDIZED TOP_N)
 # =========================================================
 st.subheader(f"🏭 Unified Supplier Intelligence View (Top {TOP_N})")
-st.dataframe(with_rank(filtered_master.head(TOP_N)), use_container_width=True, hide_index=True)
+st.dataframe(with_rank(cap_top_n(filtered_master, TOP_N)), use_container_width=True, hide_index=True)
 
 st.markdown(f"### 🔴 Highest Risk Suppliers (Top {TOP_N})")
-
-# ✅ ALWAYS show top-N "most risky" by severity, even if some are Strategic
 risk_tbl = supplier_master.copy()
 severity_rank = {"🔴 Quality Risk": 0, "🟠 Delivery Risk": 1, "🟡 Cost Risk": 2, "🟢 Strategic": 3}
 risk_tbl["_sev"] = risk_tbl["risk_flag"].map(severity_rank).fillna(9)
 risk_tbl = risk_tbl.sort_values(["_sev", "performance_score"], ascending=[True, True]).drop(columns=["_sev"])
 risk_tbl = apply_search(risk_tbl, search_query)
-st.dataframe(with_rank(risk_tbl.head(TOP_N)), use_container_width=True, hide_index=True)
+st.dataframe(with_rank(cap_top_n(risk_tbl, TOP_N)), use_container_width=True, hide_index=True)
 
 st.markdown(f"### 🟢 Top Performing Suppliers (Top {TOP_N})")
 top_tbl = apply_search(supplier_master.sort_values("performance_score", ascending=False), search_query)
-st.dataframe(with_rank(top_tbl.head(TOP_N)), use_container_width=True, hide_index=True)
+st.dataframe(with_rank(cap_top_n(top_tbl, TOP_N)), use_container_width=True, hide_index=True)
 
 # =========================================================
 # 💰 FINANCIAL IMPACT (PROTOTYPE ESTIMATES)
