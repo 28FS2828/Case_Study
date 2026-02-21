@@ -244,13 +244,13 @@ supplier_master = supplier_master.fillna({
 })
 
 # =========================================================
-# NEW: UNIQUE SUPPLIER COUNTS (LEVEL-SET METRICS)
+# UNIQUE SUPPLIER COUNTS (LEVEL-SET METRICS)
 # =========================================================
 st.subheader("📌 Data Coverage (Supplier Counts)")
 cA, cB = st.columns(2)
 cA.metric("Unique suppliers (orders raw)", int(orders["supplier_name"].nunique()))
 cB.metric("Unique suppliers (master table)", int(supplier_master["supplier_name"].nunique()))
-st.caption("If the master table count is lower, that’s usually because entity resolution merged duplicates.")
+st.caption("If the master table count is lower, entity resolution merged duplicates into a single supplier record.")
 
 # =========================================================
 # PERFORMANCE SCORING + FLAGS
@@ -300,9 +300,9 @@ st.subheader(f"🏭 Unified Supplier Intelligence View (Top {TOP_N})")
 st.dataframe(with_rank(filtered_master.head(TOP_N)), use_container_width=True, hide_index=True)
 
 st.markdown(f"### 🔴 Highest Risk Suppliers (Top {TOP_N})")
-risk_tbl = supplier_master[supplier_master["risk_flag"].str.contains("🔴|🟠|🟡")].copy()
 
-# show worst first: quality -> delivery -> cost, then by low score
+# ✅ ALWAYS show top-N "most risky" by severity, even if some are Strategic
+risk_tbl = supplier_master.copy()
 severity_rank = {"🔴 Quality Risk": 0, "🟠 Delivery Risk": 1, "🟡 Cost Risk": 2, "🟢 Strategic": 3}
 risk_tbl["_sev"] = risk_tbl["risk_flag"].map(severity_rank).fillna(9)
 risk_tbl = risk_tbl.sort_values(["_sev", "performance_score"], ascending=[True, True]).drop(columns=["_sev"])
