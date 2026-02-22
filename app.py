@@ -1,5 +1,6 @@
 import re
 from datetime import date, timedelta
+
 import pandas as pd
 import streamlit as st
 import altair as alt
@@ -11,7 +12,7 @@ st.set_page_config(page_title="Hoth Intelligence Hub", layout="wide")
 st.title("🚀 Hoth Industries: Supplier Intelligence Hub")
 st.markdown("---")
 
-TOP_N = 10  # Standardize row counts across tables
+TOP_N = 10  # standard row cap for tables
 
 # =========================================================
 # CONSISTENT RISK COLOR MAP (charts match table semantics)
@@ -25,20 +26,25 @@ risk_color_scale = alt.Scale(domain=RISK_ORDER, range=RISK_COLORS)
 # =========================================================
 DISPLAY_COLS = {
     "supplier_name": "Supplier",
-    "fit_status": "Fit Status",
     "risk_flag": "Risk Flag",
+    "fit_status": "Fit Status",
+    "notes_hint": "Supplier Notes (Tribal Knowledge)",
+
     "total_spend": "Total Spend ($)",
     "spend_m": "Total Spend ($M)",
     "avg_price": "Avg RFQ Price ($/unit)",
-    "price_score": "Price Score (0–100)",
-    "performance_score": "Performance Score (0–100)",
+    "price_delta_vs_best": "Price Delta vs Best ($/unit)",
+
     "on_time_rate": "On-Time Rate (%)",
     "defect_rate": "Defect Rate (%)",
+
+    "price_score": "Price Score (0–100)",
+    "performance_score": "Performance Score (0–100)",
+
     "estimated_savings": "Est. Savings ($)",
     "estimated_overpay": "Est. Overpay ($)",
     "defect_cost": "Est. Defect Cost ($)",
-    "price_delta_vs_best": "Price Delta vs Best ($/unit)",
-    "notes_hint": "Supplier Notes (Tribal Knowledge)",
+
     "quadrant": "Quadrant",
 }
 
@@ -56,6 +62,59 @@ def with_rank(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 # =========================================================
+# EXEC-FRIENDLY TABLE FORMATTING ($ commas, %, etc.)
+# =========================================================
+def _fmt_money(x):
+    if pd.isna(x):
+        return ""
+    return f"${x:,.0f}"
+
+def _fmt_money_2(x):
+    if pd.isna(x):
+        return ""
+    return f"${x:,.2f}"
+
+def _fmt_pct(x):
+    if pd.isna(x):
+        return ""
+    return f"{x:.1f}%"
+
+def _fmt_score(x):
+    if pd.isna(x):
+        return ""
+    return f"{x:.1f}"
+
+def style_exec_table(df: pd.DataFrame):
+    """
+    Formats based on *displayed* column headers (after format_for_display rename).
+    - ($) => $1,234,567
+    - ($/unit) => $12.34
+    - (%) => 12.3%
+    - (0–100) => 87.6
+    """
+    money_cols = [c for c in df.columns if c.endswith("($)") or "($)" in c or c.endswith("($M)") is False and "Savings ($)" in c or "Overpay ($)" in c or "Cost ($)" in c]
+    # safer detection for ($) anywhere:
+    money_cols = [c for c in df.columns if "($)" in c]
+    money_unit_cols = [c for c in df.columns if "($/unit)" in c]
+    pct_cols = [c for c in df.columns if "(%)" in c]
+    score_cols = [c for c in df.columns if "(0–100)" in c or "(0-100)" in c]
+
+    styler = df.style
+    if money_cols:
+        styler = styler.format({c: _fmt_money for c in money_cols})
+    if money_unit_cols:
+        styler = styler.format({c: _fmt_money_2 for c in money_unit_cols})
+    if pct_cols:
+        styler = styler.format({c: _fmt_pct for c in pct_cols})
+    if score_cols:
+        styler = styler.format({c: _fmt_score for c in score_cols})
+    return styler
+
+def show_table(df: pd.DataFrame, max_rows: int = TOP_N):
+    df_show = df.head(max_rows) if len(df) > max_rows else df
+    st.dataframe(style_exec_table(df_show), use_container_width=True, hide_index=True)
+
+# =========================================================
 # ENTITY RESOLUTION HELPERS
 # =========================================================
 LEGAL_SUFFIXES = {
@@ -64,23 +123,17 @@ LEGAL_SUFFIXES = {
 }
 
 def normalize_supplier_key(name: str) -> str:
-    """Stable normalization key for entity resolution (no extra libs)."""
     if pd.isna(name):
         return ""
     s = str(name).lower().strip()
-    s = re.sub(r"[^a-z0-9\s]", " ", s)      # punctuation -> spaces
-    s = re.sub(r"\s+", " ", s).strip()     # collapse whitespace
-
+    s = re.sub(r"[^a-z0-9\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
     parts = s.split(" ")
     while parts and parts[-1] in LEGAL_SUFFIXES:
         parts = parts[:-1]
     return " ".join(parts).strip()
 
 def apply_entity_resolution(df: pd.DataFrame, col: str, manual_key_map: dict | None = None) -> pd.DataFrame:
-    """
-    Resolve near-duplicate supplier entities using normalized keys + optional manual overrides.
-    Canonical naming rule: ALWAYS choose the longest (most complete) company name.
-    """
     if col not in df.columns:
         return df
 
@@ -99,12 +152,7 @@ def apply_entity_resolution(df: pd.DataFrame, col: str, manual_key_map: dict | N
         vals.sort(key=lambda x: (-len(x), x))  # longest first, then alphabetical
         return vals[0]
 
-    canonical = (
-        out.groupby("_supplier_key")[col]
-           .agg(pick_longest_name)
-           .to_dict()
-    )
-
+    canonical = out.groupby("_supplier_key")[col].agg(pick_longest_name).to_dict()
     out[col] = out["_supplier_key"].map(canonical).fillna(out[col])
     out = out.drop(columns=["_supplier_key"])
     return out
@@ -113,7 +161,6 @@ def apply_entity_resolution(df: pd.DataFrame, col: str, manual_key_map: dict | N
 # GENERAL HELPERS
 # =========================================================
 def read_csv_flexible(candidates):
-    """Try multiple filenames (Streamlit Cloud vs local copies)."""
     last_err = None
     for f in candidates:
         try:
@@ -123,15 +170,13 @@ def read_csv_flexible(candidates):
     raise last_err
 
 def read_text_flexible(candidates):
-    """Try multiple filenames for supplier notes."""
-    last_err = None
     for f in candidates:
         try:
             with open(f, "r", encoding="utf-8", errors="ignore") as fp:
                 return fp.read()
-        except Exception as e:
-            last_err = e
-    return ""  # notes are optional; don't hard fail
+        except Exception:
+            pass
+    return ""
 
 def safe_to_datetime(df, col):
     if col in df.columns:
@@ -144,14 +189,10 @@ def apply_search(df: pd.DataFrame, query: str) -> pd.DataFrame:
     q = query.strip().lower()
     return df[df["supplier_name"].astype(str).str.lower().str.contains(q, na=False)]
 
-def cap_top_n(df: pd.DataFrame, n: int) -> pd.DataFrame:
-    return df.head(n) if len(df) > n else df
-
-def find_best_col(df: pd.DataFrame, keywords: list[str]) -> str | None:
-    """Find a column whose name contains one of the keywords."""
-    cols = list(df.columns)
+def find_best_col(df: pd.DataFrame, preferred: list[str]) -> str | None:
+    cols = df.columns.tolist()
     low = {c: c.lower() for c in cols}
-    for kw in keywords:
+    for kw in preferred:
         for c in cols:
             if kw in low[c]:
                 return c
@@ -162,26 +203,28 @@ def find_best_col(df: pd.DataFrame, keywords: list[str]) -> str | None:
 # =========================================================
 def parse_supplier_notes(notes_text: str) -> dict:
     """
-    Parse supplier_notes.txt into {canonical_supplier_key: {descriptor, bullets}}.
-    Intentionally simple/robust for prototype.
+    Returns dict: { normalized_supplier_key: {"descriptor": str, "bullets": [..]} }
+    Handles the ===== separator style in your notes.
     """
     notes = {}
     if not notes_text:
         return notes
 
+    # Split by long === lines (common in your file)
     blocks = re.split(r"\n=+\n", notes_text)
     for b in blocks:
         b = b.strip()
         if not b:
             continue
+        first = b.splitlines()[0].strip()
 
-        header = b.splitlines()[0].strip()
-        header_match = re.search(r"^([A-Z0-9 &/]+)\s*-\s*(.+)$", header, flags=re.IGNORECASE)
-        if not header_match:
+        # Header often like "QUICKFAB INDUSTRIES - CAUTION / HIGH RISK"
+        m = re.match(r"^([A-Z0-9 &/]+)\s*-\s*(.+)$", first, flags=re.IGNORECASE)
+        if not m:
             continue
 
-        supplier_raw = header_match.group(1).strip()
-        descriptor = header_match.group(2).strip()
+        supplier_raw = m.group(1).strip()
+        descriptor = m.group(2).strip()
         k = normalize_supplier_key(supplier_raw)
 
         lines = [ln.strip() for ln in b.splitlines()[1:] if ln.strip()]
@@ -192,8 +235,19 @@ def parse_supplier_notes(notes_text: str) -> dict:
                 break
 
         notes[k] = {"descriptor": descriptor, "bullets": bullets}
-
     return notes
+
+def note_snippet(supplier_notes: dict, supplier_name: str) -> str:
+    k = normalize_supplier_key(supplier_name)
+    n = supplier_notes.get(k)
+    if not n:
+        return ""
+    desc = n.get("descriptor", "")
+    bullets = n.get("bullets", [])
+    line = desc
+    if bullets:
+        line = f"{desc} | {bullets[0]}"
+    return line[:200] + ("…" if len(line) > 200 else "")
 
 # =========================================================
 # LOAD + CLEAN DATA
@@ -205,24 +259,20 @@ def load_data():
         "Copy of supplier_orders (1).csv",
         "supplier_orders.csv",
     ])
-
     quality = read_csv_flexible([
         "Copy of quality_inspections.csv",
         "Copy of quality_inspections (1).csv",
         "quality_inspections.csv",
     ])
-
     rfqs = read_csv_flexible([
         "Copy of rfq_responses.csv",
         "Copy of rfq_responses (1).csv",
         "rfq_responses.csv",
     ])
-
     notes_text = read_text_flexible([
         "supplier_notes.txt",
-        "Supplier_Notes.txt",
-        "SUPPLIER_NOTES.txt",
         "supplier_notes (1).txt",
+        "SUPPLIER_NOTES.txt",
     ])
 
     manual_key_map = {
@@ -231,26 +281,25 @@ def load_data():
         "apex mfg inc": "apex manufacturing",
     }
 
-    orders  = apply_entity_resolution(orders,  "supplier_name", manual_key_map)
-    rfqs    = apply_entity_resolution(rfqs,    "supplier_name", manual_key_map)
-    quality = apply_entity_resolution(quality, "supplier_name", manual_key_map)
+    orders = apply_entity_resolution(orders, "supplier_name", manual_key_map)
+    rfqs = apply_entity_resolution(rfqs, "supplier_name", manual_key_map)
+    # (quality doesn't have supplier_name in your CSV; it merges via order_id later)
 
-    orders  = safe_to_datetime(orders,  "order_date")
-    orders  = safe_to_datetime(orders,  "promised_date")
-    orders  = safe_to_datetime(orders,  "actual_delivery_date")
+    orders = safe_to_datetime(orders, "order_date")
+    orders = safe_to_datetime(orders, "promised_date")
+    orders = safe_to_datetime(orders, "actual_delivery_date")
     quality = safe_to_datetime(quality, "inspection_date")
-    rfqs    = safe_to_datetime(rfqs,    "quote_date")
+    rfqs = safe_to_datetime(rfqs, "quote_date")
 
     return orders, quality, rfqs, notes_text
 
 try:
     orders, quality, rfqs, supplier_notes_text = load_data()
+    supplier_notes = parse_supplier_notes(supplier_notes_text)
     st.success("✅ Data loaded & supplier names normalized (entity resolution applied)")
 except Exception as e:
     st.error(f"Error loading data: {e}")
     st.stop()
-
-supplier_notes = parse_supplier_notes(supplier_notes_text)
 
 # =========================================================
 # DEFINITIONS / SCORING
@@ -259,39 +308,33 @@ with st.expander("ℹ️ Definitions & Scoring (how to interpret the dashboard)"
     st.markdown(
         """
 **Core KPIs**
-- **Total Spend ($)**: Total purchase order spend per supplier (sum of `po_amount`).
-- **On-Time Rate (%)**: % of orders delivered on or before the promised date.
-- **Defect Rate (%)**: % of inspected parts rejected (avg of `parts_rejected / parts_inspected`).
-- **Avg RFQ Price ($/unit)**: Average RFQ quoted price per supplier (unit varies by part).
+- **Total Spend ($)**: Sum of purchase order spend per supplier.
+- **On-Time Rate (%)**: % of orders delivered on/before promised date.
+- **Defect Rate (%)**: Avg rejected rate across inspections.
+- **Avg RFQ Price ($/unit)**: Avg quoted unit price (unit varies by part).
 
 **Scores**
-- **Price Score (0–100)**: Lower `avg_price` → higher score.  
-  `100 * (1 - avg_price / max_avg_price)` (clipped 0–100). If `avg_price = 0`, score = 0 (missing pricing).
-- **Performance Score (0–100)**: Weighted composite (higher = better).  
-  `0.45 * on_time_rate + 0.35 * (100 - defect_rate) + 0.20 * price_score`
+- **Price Score (0–100)**: Lower avg price → higher score.
+- **Performance Score (0–100)**: Composite of delivery, quality, and cost.
 
 **Risk Flags**
-- 🔴 **Quality Risk**: `defect_rate >= 8%`
-- 🟠 **Delivery Risk**: `on_time_rate <= 85%`
-- 🟡 **Cost Risk**: `price_score <= 40`
+- 🔴 **Quality Risk**: Defect Rate ≥ 8%
+- 🟠 **Delivery Risk**: On-Time Rate ≤ 85%
+- 🟡 **Cost Risk**: Price Score ≤ 40
 - 🟢 **Strategic**: none triggered
         """
     )
 
 # =========================================================
-# KPI CALCULATIONS
+# KPI CALCULATIONS (MASTER)
 # =========================================================
-if "po_amount" not in orders.columns or "supplier_name" not in orders.columns:
-    st.error("Orders must contain 'supplier_name' and 'po_amount'.")
+required_orders_cols = {"order_id", "supplier_name", "po_amount", "promised_date", "actual_delivery_date"}
+if not required_orders_cols.issubset(set(orders.columns)):
+    st.error(f"Orders file missing required columns: {sorted(list(required_orders_cols - set(orders.columns)))}")
     st.stop()
 
 spend = orders.groupby("supplier_name", dropna=False)["po_amount"].sum().reset_index()
 spend.columns = ["supplier_name", "total_spend"]
-
-required_cols = {"promised_date", "actual_delivery_date"}
-if not required_cols.issubset(set(orders.columns)):
-    st.error("Orders must contain 'promised_date' and 'actual_delivery_date'.")
-    st.stop()
 
 orders_kpi = orders.copy()
 orders_kpi["on_time"] = (orders_kpi["actual_delivery_date"] <= orders_kpi["promised_date"]).astype(float)
@@ -299,8 +342,8 @@ on_time = orders_kpi.groupby("supplier_name", dropna=False)["on_time"].mean().re
 on_time["on_time_rate"] = (on_time["on_time"] * 100).round(1)
 on_time = on_time.drop(columns=["on_time"])
 
-if "order_id" not in quality.columns or "order_id" not in orders.columns:
-    st.error("Both quality and orders must contain 'order_id'.")
+if "order_id" not in quality.columns:
+    st.error("Quality inspections file must contain 'order_id'.")
     st.stop()
 
 q = quality.merge(orders[["order_id", "supplier_name"]], on="order_id", how="left")
@@ -312,8 +355,8 @@ else:
 defects = q.groupby("supplier_name", dropna=False)["defect_rate"].mean().reset_index()
 defects["defect_rate"] = (defects["defect_rate"] * 100).round(1)
 
-if "supplier_name" not in rfqs.columns or "quoted_price" not in rfqs.columns:
-    st.error("RFQs must contain 'supplier_name' and 'quoted_price'.")
+if not {"supplier_name", "quoted_price"}.issubset(set(rfqs.columns)):
+    st.error("RFQ responses file must contain 'supplier_name' and 'quoted_price'.")
     st.stop()
 
 avg_price = rfqs.groupby("supplier_name", dropna=False)["quoted_price"].mean().reset_index()
@@ -326,13 +369,9 @@ supplier_master = (
          .merge(avg_price, on="supplier_name", how="left")
 ).fillna({"on_time_rate": 0.0, "defect_rate": 0.0, "avg_price": 0.0})
 
-# =========================================================
-# SCORING + FLAGS
-# =========================================================
 max_price = supplier_master["avg_price"].replace(0, pd.NA).max()
 if pd.notna(max_price) and max_price > 0:
-    supplier_master["price_score"] = 100 * (1 - (supplier_master["avg_price"] / max_price))
-    supplier_master["price_score"] = supplier_master["price_score"].fillna(0).clip(0, 100)
+    supplier_master["price_score"] = (100 * (1 - (supplier_master["avg_price"] / max_price))).fillna(0).clip(0, 100)
 else:
     supplier_master["price_score"] = 0.0
 
@@ -364,19 +403,19 @@ cB.metric("Unique suppliers (master table)", int(supplier_master["supplier_name"
 st.caption("If the master table count is lower, entity resolution merged duplicates into a single supplier record.")
 
 # =========================================================
-# SEARCH UI
+# SEARCH
 # =========================================================
 st.subheader("🔎 Search Suppliers")
 search_query = st.text_input("Search by supplier name", placeholder="e.g., Apex, Stellar, TitanForge...")
 filtered_master = apply_search(supplier_master, search_query)
 
 # =========================================================
-# DISPLAY TABLES (WITH UNITS)
+# TABLES
 # =========================================================
 st.subheader(f"🏭 Unified Supplier Intelligence View (Top {TOP_N})")
-cols_master = ["supplier_name","total_spend","on_time_rate","defect_rate","avg_price","price_score","performance_score","risk_flag"]
-st.dataframe(with_rank(cap_top_n(format_for_display(filtered_master, cols_master), TOP_N)),
-             use_container_width=True, hide_index=True)
+cols_master = ["supplier_name", "total_spend", "on_time_rate", "defect_rate", "avg_price", "price_score", "performance_score", "risk_flag"]
+tbl = with_rank(format_for_display(filtered_master, cols_master))
+show_table(tbl, TOP_N)
 
 st.markdown(f"### 🔴 Highest Risk Suppliers (Top {TOP_N})")
 severity_rank = {"🔴 Quality Risk": 0, "🟠 Delivery Risk": 1, "🟡 Cost Risk": 2, "🟢 Strategic": 3}
@@ -384,16 +423,16 @@ risk_tbl = supplier_master.copy()
 risk_tbl["_sev"] = risk_tbl["risk_flag"].map(severity_rank).fillna(9)
 risk_tbl = risk_tbl.sort_values(["_sev", "performance_score"], ascending=[True, True]).drop(columns=["_sev"])
 risk_tbl = apply_search(risk_tbl, search_query)
-st.dataframe(with_rank(cap_top_n(format_for_display(risk_tbl, cols_master), TOP_N)),
-             use_container_width=True, hide_index=True)
+tbl = with_rank(format_for_display(risk_tbl, cols_master))
+show_table(tbl, TOP_N)
 
 st.markdown(f"### 🟢 Top Performing Suppliers (Top {TOP_N})")
 top_tbl = apply_search(supplier_master.sort_values("performance_score", ascending=False), search_query)
-st.dataframe(with_rank(cap_top_n(format_for_display(top_tbl, cols_master), TOP_N)),
-             use_container_width=True, hide_index=True)
+tbl = with_rank(format_for_display(top_tbl, cols_master))
+show_table(tbl, TOP_N)
 
 # =========================================================
-# 💰 SUPPLIER CONSOLIDATION OPPORTUNITIES (WITH UNITS)
+# CONSOLIDATION OPPORTUNITIES
 # =========================================================
 st.markdown("---")
 st.header("💰 Supplier Consolidation Opportunities")
@@ -406,85 +445,88 @@ else:
 
     tmp = supplier_master.copy()
     tmp["price_delta_vs_best"] = (tmp["avg_price"] - best_price).clip(lower=0)
+
     tmp["est_units"] = 0.0
     mask_price = tmp["avg_price"] > 0
     tmp.loc[mask_price, "est_units"] = tmp.loc[mask_price, "total_spend"] / tmp.loc[mask_price, "avg_price"]
+
     tmp["estimated_savings"] = (tmp["price_delta_vs_best"] * tmp["est_units"]).fillna(0)
 
-    total_savings = float(tmp["estimated_savings"].sum())
-    st.metric("Estimated Annual Savings via Consolidation (Model)", f"${total_savings:,.0f}")
+    st.metric("Estimated Annual Savings via Consolidation (Model)", _fmt_money(float(tmp["estimated_savings"].sum())))
 
-    cols_cons = ["supplier_name","total_spend","avg_price","price_delta_vs_best","estimated_savings","risk_flag"]
-    st.dataframe(with_rank(format_for_display(tmp.sort_values("estimated_savings", ascending=False), cols_cons)),
-                 use_container_width=True, hide_index=True)
-
+    cols_cons = ["supplier_name", "total_spend", "avg_price", "price_delta_vs_best", "estimated_savings", "risk_flag"]
+    tbl = with_rank(format_for_display(tmp.sort_values("estimated_savings", ascending=False), cols_cons))
+    show_table(tbl, TOP_N)
     st.caption("Model: benchmark against lowest non-zero avg RFQ price; units approximated as spend / avg_price.")
 
 # =========================================================
-# ⚡ REAL-TIME DECISION SUPPORT (WITH UNITS)
+# ⚡ REAL-TIME DECISION SUPPORT (FIXED: always produces output)
 # =========================================================
 st.markdown("---")
-st.header("⚡ Real-Time Sourcing Decision Support (3-week decision)")
+st.header("⚡ Real-Time Sourcing Decision Support")
 
-decision_due = date.today() + timedelta(days=21)
-days_left = (decision_due - date.today()).days
-st.info(f"📅 Decision window: **{days_left} days remaining** (prototype assumes a 3-week deadline).")
+# Decision timing inputs (makes the section feel “real”)
+d1, d2 = st.columns([1, 2])
+with d1:
+    decision_in_days = st.number_input("Decision due in (days)", min_value=1, max_value=120, value=21, step=1)
+with d2:
+    decision_due = date.today() + timedelta(days=int(decision_in_days))
+    st.info(f"📅 Decision due: **{decision_due.strftime('%b %d, %Y')}** (in **{int(decision_in_days)}** days)")
 
-orders_part_col = find_best_col(orders, ["commodity", "category", "part", "component", "item", "material", "product"])
-rfq_part_col = find_best_col(rfqs, ["commodity", "category", "part", "component", "item", "material", "product"])
+# Find best “part/commodity” column (prefer description over part_number)
+orders_part_col = "part_description" if "part_description" in orders.columns else find_best_col(orders, ["commodity", "category", "part", "component", "item", "material", "product"])
+rfq_part_col = "part_description" if "part_description" in rfqs.columns else find_best_col(rfqs, ["commodity", "category", "part", "component", "item", "material", "product"])
 
-decision_cols = st.columns([1.2, 1.2, 1.6])
-with decision_cols[0]:
+# Thresholds + weights
+c1, c2, c3 = st.columns([1.1, 1.1, 1.8])
+with c1:
     req_on_time = st.slider("Minimum On-Time Rate (%)", 0, 100, 90)
-with decision_cols[1]:
+with c2:
     max_defects = st.slider("Maximum Defect Rate (%)", 0, 20, 5)
-with decision_cols[2]:
+with c3:
     st.write("Weights (Delivery / Quality / Cost)")
     w_delivery = st.slider("Delivery weight", 0.0, 1.0, 0.45, 0.05)
     w_quality  = st.slider("Quality weight",  0.0, 1.0, 0.35, 0.05)
     w_cost     = st.slider("Cost weight",     0.0, 1.0, 0.20, 0.05)
-    w_sum = w_delivery + w_quality + w_cost
-    if w_sum == 0:
-        w_delivery, w_quality, w_cost = 0.45, 0.35, 0.20
-        w_sum = 1.0
-    w_delivery, w_quality, w_cost = w_delivery / w_sum, w_quality / w_sum, w_cost / w_sum
 
-commodity_choice = None
-if orders_part_col or rfq_part_col:
-    vals = set()
-    if orders_part_col:
-        vals |= set(orders[orders_part_col].dropna().astype(str).unique().tolist())
-    if rfq_part_col:
-        vals |= set(rfqs[rfq_part_col].dropna().astype(str).unique().tolist())
-    vals = sorted([v for v in vals if v.strip()])
-    if vals:
-        commodity_choice = st.selectbox("Filter to commodity/category (optional)", ["(All)"] + vals)
+w_sum = w_delivery + w_quality + w_cost
+if w_sum == 0:
+    w_delivery, w_quality, w_cost = 0.45, 0.35, 0.20
+    w_sum = 1.0
+w_delivery, w_quality, w_cost = w_delivery / w_sum, w_quality / w_sum, w_cost / w_sum
+
+# Commodity/part filtering that won't “blank out” the UI
+st.subheader("Optional: Scope the decision to a part/commodity")
+part_query = st.text_input("Search part description (optional)", placeholder="Type a few letters (e.g., motor, fin, bracket)…")
+
+selected_part = None
+if part_query.strip() and orders_part_col and orders_part_col in orders.columns:
+    matches = (
+        orders[orders_part_col].dropna().astype(str)
+        .loc[lambda s: s.str.lower().str.contains(part_query.strip().lower(), na=False)]
+        .value_counts().head(25).index.tolist()
+    )
+    if matches:
+        selected_part = st.selectbox("Select matching part (top 25)", ["(All matches)"] + matches)
+    else:
+        st.caption("No matches found in orders for that search.")
 else:
-    st.caption("No part/commodity column detected in the sample data — decision support ranks suppliers overall.")
+    st.caption("Tip: use the search box above if you want to scope the decision to one part/commodity.")
 
 decision_orders = orders.copy()
 decision_rfqs = rfqs.copy()
 
-if commodity_choice and commodity_choice != "(All)":
+if selected_part and selected_part != "(All matches)":
     if orders_part_col and orders_part_col in decision_orders.columns:
-        decision_orders = decision_orders[decision_orders[orders_part_col].astype(str) == commodity_choice]
+        decision_orders = decision_orders[decision_orders[orders_part_col].astype(str) == selected_part]
     if rfq_part_col and rfq_part_col in decision_rfqs.columns:
-        decision_rfqs = decision_rfqs[decision_rfqs[rfq_part_col].astype(str) == commodity_choice]
+        decision_rfqs = decision_rfqs[decision_rfqs[rfq_part_col].astype(str) == selected_part]
 
-def note_snippet(supplier_name: str) -> str:
-    k = normalize_supplier_key(supplier_name)
-    n = supplier_notes.get(k)
-    if not n:
-        return ""
-    desc = n.get("descriptor", "")
-    bullets = n.get("bullets", [])
-    line = desc
-    if bullets:
-        line = f"{desc} | {bullets[0]}"
-    return line[:200] + ("…" if len(line) > 200 else "")
+# If scope filters everything out, fall back to overall so the section is never blank
+scoped = len(decision_orders) > 0
 
-if len(decision_orders) == 0:
-    st.warning("No orders match the selected commodity filter. Showing overall supplier ranking instead.")
+# Recompute scoped KPI set (or fallback to master)
+if not scoped:
     decision_kpi = supplier_master.copy()
 else:
     spend_d = decision_orders.groupby("supplier_name", dropna=False)["po_amount"].sum().reset_index()
@@ -513,14 +555,13 @@ else:
 
     decision_kpi = (
         spend_d.merge(on_time_d, on="supplier_name", how="left")
-               .merge(defects_d, on="supplier_name", how="left")
-               .merge(avg_price_d, on="supplier_name", how="left")
+              .merge(defects_d, on="supplier_name", how="left")
+              .merge(avg_price_d, on="supplier_name", how="left")
     ).fillna({"on_time_rate": 0.0, "defect_rate": 0.0, "avg_price": 0.0})
 
     max_price_d = decision_kpi["avg_price"].replace(0, pd.NA).max()
     if pd.notna(max_price_d) and max_price_d > 0:
-        decision_kpi["price_score"] = 100 * (1 - (decision_kpi["avg_price"] / max_price_d))
-        decision_kpi["price_score"] = decision_kpi["price_score"].fillna(0).clip(0, 100)
+        decision_kpi["price_score"] = (100 * (1 - (decision_kpi["avg_price"] / max_price_d))).fillna(0).clip(0, 100)
     else:
         decision_kpi["price_score"] = 0.0
 
@@ -532,24 +573,50 @@ else:
 
     decision_kpi["risk_flag"] = decision_kpi.apply(risk_flag, axis=1)
 
-decision_kpi["meets_on_time"] = decision_kpi["on_time_rate"] >= req_on_time
-decision_kpi["meets_quality"] = decision_kpi["defect_rate"] <= max_defects
-decision_kpi["fit"] = decision_kpi["meets_on_time"] & decision_kpi["meets_quality"]
+# Fit logic + notes overlay
+decision_kpi["fit"] = (decision_kpi["on_time_rate"] >= req_on_time) & (decision_kpi["defect_rate"] <= max_defects)
 decision_kpi["fit_status"] = decision_kpi["fit"].map({True: "✅ Fit", False: "❌ Not fit"})
-decision_kpi["notes_hint"] = decision_kpi["supplier_name"].apply(note_snippet)
+decision_kpi["notes_hint"] = decision_kpi["supplier_name"].apply(lambda s: note_snippet(supplier_notes, s))
 
-st.subheader("✅ Recommendation (Decision-Time Ranking)")
-st.caption("Set thresholds + weights and instantly generate a defensible shortlist. Notes overlay = tribal knowledge captured.")
+st.subheader("✅ Decision-Time Shortlist (ranked)")
+if selected_part and selected_part != "(All matches)":
+    st.caption(f"Scoped to part: **{selected_part}**")
+elif part_query.strip() and not scoped:
+    st.caption("No orders matched the search scope — showing overall ranking instead.")
+else:
+    st.caption("Showing overall ranking (no scope applied).")
 
-show_cols = ["supplier_name","fit_status","performance_score","risk_flag","on_time_rate","defect_rate","avg_price","total_spend","notes_hint"]
 decision_view = decision_kpi.sort_values(["fit", "performance_score"], ascending=[False, False])
-st.dataframe(with_rank(cap_top_n(format_for_display(decision_view, show_cols), TOP_N)),
-             use_container_width=True, hide_index=True)
+cols_decision = ["supplier_name", "fit_status", "performance_score", "risk_flag", "on_time_rate", "defect_rate", "avg_price", "total_spend", "notes_hint"]
+tbl = with_rank(format_for_display(decision_view, cols_decision))
+show_table(tbl, TOP_N)
 
 st.metric("Suppliers meeting thresholds", f"{int(decision_kpi['fit'].sum())} / {len(decision_kpi)}")
 
+# Optional supplier deep-dive (always works)
+st.subheader("📌 Supplier Deep Dive (notes + KPIs)")
+pick_list = sorted(decision_kpi["supplier_name"].astype(str).unique().tolist())
+supplier_pick = st.selectbox("Select a supplier", pick_list)
+row = decision_kpi.loc[decision_kpi["supplier_name"] == supplier_pick].iloc[0]
+
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Performance Score", f"{row['performance_score']:.1f}")
+m2.metric("On-Time Rate (%)", f"{row['on_time_rate']:.1f}%")
+m3.metric("Defect Rate (%)", f"{row['defect_rate']:.1f}%")
+m4.metric("Risk Flag", row["risk_flag"])
+
+st.write("**Supplier notes (if available):**")
+k = normalize_supplier_key(supplier_pick)
+n = supplier_notes.get(k)
+if n:
+    st.write(f"- **{n.get('descriptor','')}**")
+    for b in n.get("bullets", []):
+        st.write(f"- {b}")
+else:
+    st.write("- (No notes found for this supplier in supplier_notes.txt)")
+
 # =========================================================
-# ✅ EXECUTIVE VISUALS (BARS + QUADRANT TABLE)
+# EXECUTIVE VISUALS (aligned labels)
 # =========================================================
 st.markdown("---")
 st.header("📊 Executive Supplier Snapshot")
@@ -567,7 +634,7 @@ spend_chart = (
             "supplier_label:N",
             sort="-x",
             title=None,
-            axis=alt.Axis(labelAlign="left", labelPadding=12, labelLimit=400)
+            axis=alt.Axis(labelAlign="left", labelPadding=12, labelLimit=400, labelAngle=0)
         ),
         x=alt.X("spend_m:Q", title="Total Spend ($M)"),
         color=alt.Color("risk_flag:N", scale=risk_color_scale, legend=alt.Legend(title="Risk Flag")),
@@ -580,7 +647,6 @@ spend_chart = (
     )
     .properties(height=260)
     .configure_view(strokeOpacity=0)
-    .configure_axisY(labelAngle=0)
 )
 st.altair_chart(spend_chart, use_container_width=True)
 
@@ -593,7 +659,7 @@ perf_chart = (
             "supplier_label:N",
             sort="-x",
             title=None,
-            axis=alt.Axis(labelAlign="left", labelPadding=12, labelLimit=400)
+            axis=alt.Axis(labelAlign="left", labelPadding=12, labelLimit=400, labelAngle=0)
         ),
         x=alt.X("performance_score:Q", title="Performance Score (0–100)", scale=alt.Scale(domain=[0, 100])),
         color=alt.Color("risk_flag:N", scale=risk_color_scale, legend=None),
@@ -608,76 +674,44 @@ perf_chart = (
     )
     .properties(height=260)
     .configure_view(strokeOpacity=0)
-    .configure_axisY(labelAngle=0)
 )
 st.altair_chart(perf_chart, use_container_width=True)
 
-st.subheader("Priority Quadrant (Simple + Executive-Friendly)")
-x_cut = float(viz_df["performance_score"].median()) if len(viz_df) else 50.0
-y_cut = float(viz_df["total_spend"].median()) if len(viz_df) else 0.0
-
-quad = viz_df.copy()
-quad["spend_bucket"] = quad["total_spend"].apply(lambda v: "High Spend" if v >= y_cut else "Low Spend")
-quad["perf_bucket"] = quad["performance_score"].apply(lambda v: "Low Performance" if v < x_cut else "High Performance")
-quad["quadrant"] = quad["spend_bucket"] + " / " + quad["perf_bucket"]
-
-quad_order = [
-    "High Spend / Low Performance",
-    "High Spend / High Performance",
-    "Low Spend / Low Performance",
-    "Low Spend / High Performance",
-]
-
-quad = quad.sort_values(["total_spend"], ascending=False)
-quad["quadrant"] = pd.Categorical(quad["quadrant"], categories=quad_order, ordered=True)
-quad = quad.sort_values(["quadrant", "total_spend"], ascending=[True, False])
-
-st.caption(f"Median cutoffs: Performance = {x_cut:.1f}, Spend = ${y_cut:,.0f}. Primary focus = **High Spend / Low Performance**.")
-quad_cols = ["quadrant","supplier_name","total_spend","performance_score","risk_flag","on_time_rate","defect_rate","avg_price"]
-st.dataframe(format_for_display(quad, quad_cols), use_container_width=True, hide_index=True)
-
 # =========================================================
-# 💰 FINANCIAL IMPACT (WITH UNITS)
+# FINANCIAL IMPACT (formatted $)
 # =========================================================
 st.markdown("---")
 st.header("💰 Estimated Financial Impact (Prototype)")
-st.caption("Prototype estimates to make decision-making tangible in the meeting.")
 
 nonzero_prices = supplier_master["avg_price"].replace(0, pd.NA).dropna()
 lowest_price = nonzero_prices.min() if len(nonzero_prices) else pd.NA
 
 supplier_master["est_units"] = 0.0
 mask_price = supplier_master["avg_price"] > 0
-supplier_master.loc[mask_price, "est_units"] = (
-    supplier_master.loc[mask_price, "total_spend"] / supplier_master.loc[mask_price, "avg_price"]
-)
+supplier_master.loc[mask_price, "est_units"] = supplier_master.loc[mask_price, "total_spend"] / supplier_master.loc[mask_price, "avg_price"]
 
 supplier_master["estimated_overpay"] = 0.0
+supplier_master["price_delta_vs_best"] = 0.0
 if pd.notna(lowest_price):
     supplier_master["price_delta_vs_best"] = (supplier_master["avg_price"] - lowest_price).clip(lower=0)
-    supplier_master["estimated_overpay"] = (
-        supplier_master["price_delta_vs_best"] * supplier_master["est_units"]
-    ).fillna(0)
-else:
-    supplier_master["price_delta_vs_best"] = 0.0
+    supplier_master["estimated_overpay"] = (supplier_master["price_delta_vs_best"] * supplier_master["est_units"]).fillna(0)
 
-total_overpay = float(supplier_master["estimated_overpay"].sum())
 supplier_master["defect_cost"] = supplier_master["total_spend"] * (supplier_master["defect_rate"] / 100.0) * 0.5
-total_defect_cost = float(supplier_master["defect_cost"].sum())
 late_spend = float(supplier_master.loc[supplier_master["on_time_rate"] < 85, "total_spend"].sum())
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Potential Cost Leakage ($)", f"${total_overpay:,.0f}")
-c2.metric("Estimated Cost of Quality Issues ($)", f"${total_defect_cost:,.0f}")
-c3.metric("Spend Exposed to Delivery Risk ($)", f"${late_spend:,.0f}")
+c1.metric("Potential Cost Leakage ($)", _fmt_money(float(supplier_master["estimated_overpay"].sum())))
+c2.metric("Estimated Cost of Quality Issues ($)", _fmt_money(float(supplier_master["defect_cost"].sum())))
+c3.metric("Spend Exposed to Delivery Risk ($)", _fmt_money(late_spend))
 
 with st.expander("Show impact drivers by supplier"):
     impact_cols = [
-        "supplier_name","total_spend","avg_price","price_score","price_delta_vs_best",
-        "estimated_overpay","defect_rate","defect_cost","on_time_rate","performance_score","risk_flag"
+        "supplier_name", "total_spend", "avg_price", "price_score", "price_delta_vs_best",
+        "estimated_overpay", "defect_rate", "defect_cost", "on_time_rate",
+        "performance_score", "risk_flag"
     ]
-    st.dataframe(with_rank(format_for_display(supplier_master.sort_values("estimated_overpay", ascending=False), impact_cols)),
-                 use_container_width=True, hide_index=True)
+    tbl = with_rank(format_for_display(supplier_master.sort_values("estimated_overpay", ascending=False), impact_cols))
+    show_table(tbl, TOP_N)
 
 with st.expander("Debug: show column names"):
     st.write("Orders columns:", list(orders.columns))
