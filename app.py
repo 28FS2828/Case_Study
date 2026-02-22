@@ -50,7 +50,6 @@ DISPLAY_COLS = {
 }
 
 def format_for_display(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
-    """Select columns and rename them with units for presentation."""
     out = df.copy()
     keep = [c for c in cols if c in out.columns]
     out = out[keep]
@@ -86,13 +85,6 @@ def _fmt_score(x):
     return f"{x:.1f}"
 
 def style_exec_table(df: pd.DataFrame):
-    """
-    Formats based on displayed column headers (after format_for_display rename).
-    - ($) => $1,234,567
-    - ($/unit) => $12.34
-    - (%) => 12.3%
-    - (0–100) => 87.6
-    """
     money_cols = [c for c in df.columns if "($)" in c and "($/unit)" not in c]
     money_unit_cols = [c for c in df.columns if "($/unit)" in c]
     pct_cols = [c for c in df.columns if "(%)" in c]
@@ -201,10 +193,6 @@ def find_best_col(df: pd.DataFrame, preferred: list[str]) -> str | None:
 # PART CATEGORY (HIGH-LEVEL DROPDOWN) — RULES-BASED
 # =========================================================
 def categorize_part(text: str) -> str:
-    """
-    Lightweight rules-based categorizer for part/commodity.
-    Uses part_description / item text. Adjust keywords any time.
-    """
     if pd.isna(text):
         return "Other / Unknown"
     t = str(text).lower()
@@ -223,17 +211,12 @@ def categorize_part(text: str) -> str:
     for cat, kws in rules:
         if any(kw in t for kw in kws):
             return cat
-
     return "Other / Unknown"
 
 # =========================================================
 # SUPPLIER NOTES PARSER (lightweight)
 # =========================================================
 def parse_supplier_notes(notes_text: str) -> dict:
-    """
-    Returns dict: { normalized_supplier_key: {"descriptor": str, "bullets": [..]} }
-    Handles the ===== separator style in your notes.
-    """
     notes = {}
     if not notes_text:
         return notes
@@ -487,12 +470,12 @@ else:
     st.caption("Model: benchmark against lowest non-zero avg RFQ price; units approximated as spend / avg_price.")
 
 # =========================================================
-# ⚡ REAL-TIME DECISION SUPPORT (WITH PART CATEGORY DROPDOWN)
+# ⚡ REAL-TIME DECISION SUPPORT (TOGGLE + MIN THRESHOLD)
 # =========================================================
 st.markdown("---")
 st.header("⚡ Real-Time Sourcing Decision Support")
 
-# Decision timing inputs (makes the section feel “real”)
+# Decision timing inputs
 d1, d2 = st.columns([1, 2])
 with d1:
     decision_in_days = st.number_input("Decision due in (days)", min_value=1, max_value=120, value=21, step=1)
@@ -518,10 +501,27 @@ if w_sum == 0:
     w_sum = 1.0
 w_delivery, w_quality, w_cost = w_delivery / w_sum, w_quality / w_sum, w_cost / w_sum
 
-# ---- Part category dropdown (high-level)
-st.subheader("Optional: Scope the decision to a part category")
+# ---- Capability filter controls (this is what makes the dropdown actually reduce suppliers)
+st.subheader("Scope by Part Category (capability filter)")
 
-# Prefer descriptive fields if present; fall back to any part-ish text column
+cap1, cap2, cap3 = st.columns([1.2, 1.2, 1.6])
+with cap1:
+    capability_source = st.radio(
+        "Capability evidence",
+        options=["RFQs only", "Orders only", "Orders + RFQs"],
+        horizontal=True,
+        help="Use RFQs to approximate capability (who can quote). Use Orders for historical supply (who has delivered)."
+    )
+with cap2:
+    min_lines = st.slider(
+        "Minimum lines in category",
+        min_value=1, max_value=10, value=2, step=1,
+        help="Prevents a supplier from qualifying due to a single noisy/one-off line."
+    )
+with cap3:
+    show_coverage = st.checkbox("Show category coverage counts", value=True)
+
+# Detect best text columns
 orders_part_col = "part_description" if "part_description" in orders.columns else find_best_col(
     orders, ["part_description", "commodity", "category", "part", "component", "item", "material", "product", "description", "item_description"]
 )
@@ -529,10 +529,10 @@ rfq_part_col = "part_description" if "part_description" in rfqs.columns else fin
     rfqs, ["part_description", "commodity", "category", "part", "component", "item", "material", "product", "description", "item_description"]
 )
 
+# Build categorized frames
 decision_orders = orders.copy()
 decision_rfqs = rfqs.copy()
 
-# Create part_category columns if we have text columns; otherwise mark unknown
 if orders_part_col and orders_part_col in decision_orders.columns:
     decision_orders["part_category"] = decision_orders[orders_part_col].apply(categorize_part)
 else:
@@ -547,32 +547,87 @@ observed_categories = sorted(
     set(decision_orders["part_category"].dropna().astype(str).unique().tolist())
     | set(decision_rfqs["part_category"].dropna().astype(str).unique().tolist())
 )
-
 category_choice = st.selectbox("Select part category", ["(All Categories)"] + observed_categories)
 
+# Build capability counts based on chosen evidence source
+def capability_counts(source_choice: str) -> pd.DataFrame:
+    parts = []
+    if source_choice in ("Orders only", "Orders + RFQs"):
+        if "supplier_name" in decision_orders.columns and "part_category" in decision_orders.columns:
+            tmp = decision_orders.groupby(["supplier_name", "part_category"]).size().reset_index(name="lines")
+            tmp["source"] = "Orders"
+            parts.append(tmp)
+    if source_choice in ("RFQs only", "Orders + RFQs"):
+        if "supplier_name" in decision_rfqs.columns and "part_category" in decision_rfqs.columns:
+            tmp = decision_rfqs.groupby(["supplier_name", "part_category"]).size().reset_index(name="lines")
+            tmp["source"] = "RFQs"
+            parts.append(tmp)
+
+    if not parts:
+        return pd.DataFrame(columns=["supplier_name", "part_category", "lines"])
+
+    cc = pd.concat(parts, ignore_index=True)
+    # combine sources -> total lines per supplier/category
+    cc = cc.groupby(["supplier_name", "part_category"], as_index=False)["lines"].sum()
+    return cc
+
+cap_counts = capability_counts(capability_source)
+
+# Optional: show coverage table (debug-friendly)
+if show_coverage and not cap_counts.empty:
+    cov = cap_counts.copy()
+    if category_choice != "(All Categories)":
+        cov = cov[cov["part_category"] == category_choice]
+    cov = cov.sort_values(["lines", "supplier_name"], ascending=[False, True])
+    st.caption("Coverage = number of matching lines (based on selected capability evidence).")
+    show_cols = ["supplier_name", "part_category", "lines"]
+    cov_disp = with_rank(format_for_display(cov, show_cols))
+    show_table(cov_disp, max_rows=50)
+
+# Determine which suppliers qualify for the selected category (and min_lines)
+eligible_suppliers = None
+if category_choice == "(All Categories)" or cap_counts.empty:
+    eligible_suppliers = set(supplier_master["supplier_name"].astype(str).unique().tolist())
+else:
+    eligible = cap_counts[
+        (cap_counts["part_category"] == category_choice) &
+        (cap_counts["lines"] >= min_lines)
+    ]["supplier_name"].astype(str).unique().tolist()
+    eligible_suppliers = set(eligible)
+
+# Filter orders/rfqs used for scoped KPI recompute
+# (We still compute KPIs from ORDERS when scoped; RFQs primarily affects capability / avg_price)
+scoped_orders = decision_orders.copy()
+scoped_rfqs = decision_rfqs.copy()
+
 if category_choice != "(All Categories)":
-    decision_orders = decision_orders[decision_orders["part_category"] == category_choice]
-    decision_rfqs = decision_rfqs[decision_rfqs["part_category"] == category_choice]
+    scoped_orders = scoped_orders[scoped_orders["part_category"] == category_choice]
+    scoped_rfqs = scoped_rfqs[scoped_rfqs["part_category"] == category_choice]
 
-# If filter yields zero, fall back to overall so the section never looks broken/blank
-scoped = len(decision_orders) > 0
+scoped_orders = scoped_orders[scoped_orders["supplier_name"].astype(str).isin(eligible_suppliers)]
+scoped_rfqs = scoped_rfqs[scoped_rfqs["supplier_name"].astype(str).isin(eligible_suppliers)]
 
-# ---- Recompute scoped KPIs (or fallback to master)
+scoped = len(scoped_orders) > 0 and len(eligible_suppliers) > 0
+
+# ---- Recompute scoped KPIs (or fallback)
 if not scoped:
     if category_choice != "(All Categories)":
-        st.warning("No orders matched that category in the sample data — falling back to overall supplier ranking.")
+        st.warning("No suppliers met the category filter (given your evidence source + min line threshold). Showing overall ranking.")
     decision_kpi = supplier_master.copy()
 else:
-    spend_d = decision_orders.groupby("supplier_name", dropna=False)["po_amount"].sum().reset_index()
+    # Spend
+    spend_d = scoped_orders.groupby("supplier_name", dropna=False)["po_amount"].sum().reset_index()
     spend_d.columns = ["supplier_name", "total_spend"]
 
-    decision_orders_kpi = decision_orders.copy()
-    decision_orders_kpi["on_time"] = (decision_orders_kpi["actual_delivery_date"] <= decision_orders_kpi["promised_date"]).astype(float)
-    on_time_d = decision_orders_kpi.groupby("supplier_name", dropna=False)["on_time"].mean().reset_index()
+    # On-time
+    scoped_orders_kpi = scoped_orders.copy()
+    scoped_orders_kpi["on_time"] = (scoped_orders_kpi["actual_delivery_date"] <= scoped_orders_kpi["promised_date"]).astype(float)
+    on_time_d = scoped_orders_kpi.groupby("supplier_name", dropna=False)["on_time"].mean().reset_index()
     on_time_d["on_time_rate"] = (on_time_d["on_time"] * 100).round(1)
     on_time_d = on_time_d.drop(columns=["on_time"])
 
-    qd = quality.merge(decision_orders[["order_id", "supplier_name"]], on="order_id", how="inner")
+    # Defects
+    qd = quality.merge(scoped_orders[["order_id", "supplier_name"]], on="order_id", how="inner")
     if {"parts_rejected", "parts_inspected"}.issubset(set(qd.columns)) and len(qd) > 0:
         qd["defect_rate"] = (qd["parts_rejected"] / qd["parts_inspected"]).replace([pd.NA, float("inf")], 0)
         defects_d = qd.groupby("supplier_name", dropna=False)["defect_rate"].mean().reset_index()
@@ -580,8 +635,9 @@ else:
     else:
         defects_d = pd.DataFrame({"supplier_name": spend_d["supplier_name"], "defect_rate": 0.0})
 
-    if len(decision_rfqs) > 0:
-        avg_price_d = decision_rfqs.groupby("supplier_name", dropna=False)["quoted_price"].mean().reset_index()
+    # RFQ avg price (scoped to category AND eligible suppliers)
+    if len(scoped_rfqs) > 0:
+        avg_price_d = scoped_rfqs.groupby("supplier_name", dropna=False)["quoted_price"].mean().reset_index()
         avg_price_d.columns = ["supplier_name", "avg_price"]
         avg_price_d["avg_price"] = avg_price_d["avg_price"].round(2)
     else:
@@ -593,6 +649,7 @@ else:
               .merge(avg_price_d, on="supplier_name", how="left")
     ).fillna({"on_time_rate": 0.0, "defect_rate": 0.0, "avg_price": 0.0})
 
+    # Cost normalization within scope
     max_price_d = decision_kpi["avg_price"].replace(0, pd.NA).max()
     if pd.notna(max_price_d) and max_price_d > 0:
         decision_kpi["price_score"] = (100 * (1 - (decision_kpi["avg_price"] / max_price_d))).fillna(0).clip(0, 100)
@@ -614,29 +671,23 @@ decision_kpi["notes_hint"] = decision_kpi["supplier_name"].apply(lambda s: note_
 
 st.subheader("✅ Decision-Time Shortlist (ranked)")
 if category_choice != "(All Categories)":
-    st.caption(f"Scoped to category: **{category_choice}**")
+    st.caption(
+        f"Scoped to **{category_choice}** | Evidence: **{capability_source}** | Min lines: **{min_lines}** | Eligible suppliers: **{len(set(decision_kpi['supplier_name']))}**"
+    )
 else:
     st.caption("Showing overall ranking (no category scope applied).")
 
 decision_view = decision_kpi.sort_values(["fit", "performance_score"], ascending=[False, False])
-
 cols_decision = [
-    "supplier_name",
-    "fit_status",
-    "performance_score",
-    "risk_flag",
-    "on_time_rate",
-    "defect_rate",
-    "avg_price",
-    "total_spend",
-    "notes_hint"
+    "supplier_name", "fit_status", "performance_score", "risk_flag",
+    "on_time_rate", "defect_rate", "avg_price", "total_spend", "notes_hint"
 ]
 tbl = with_rank(format_for_display(decision_view, cols_decision))
 show_table(tbl, TOP_N)
 
 st.metric("Suppliers meeting thresholds", f"{int(decision_kpi['fit'].sum())} / {len(decision_kpi)}")
 
-# Supplier deep-dive (always works)
+# Supplier deep-dive
 st.subheader("📌 Supplier Deep Dive (notes + KPIs)")
 pick_list = sorted(decision_kpi["supplier_name"].astype(str).unique().tolist())
 supplier_pick = st.selectbox("Select a supplier", pick_list)
@@ -730,7 +781,6 @@ nonzero_prices = supplier_master["avg_price"].replace(0, pd.NA).dropna()
 lowest_price = nonzero_prices.min() if len(nonzero_prices) else pd.NA
 
 impact_df = supplier_master.copy()
-
 impact_df["est_units"] = 0.0
 mask_price = impact_df["avg_price"] > 0
 impact_df.loc[mask_price, "est_units"] = impact_df.loc[mask_price, "total_spend"] / impact_df.loc[mask_price, "avg_price"]
