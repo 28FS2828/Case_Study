@@ -8,9 +8,22 @@ import altair as alt
 # =========================================================
 # PAGE SETUP
 # =========================================================
-st.set_page_config(page_title="Hoth Intelligence Hub", layout="wide")
-st.title("🚀 Hoth Industries: Supplier Intelligence Hub")
+st.set_page_config(page_title="Hoth Procurement Command Center", layout="wide")
+st.title("🏭 Hoth Industries: Strategic Procurement Command Center")
 st.markdown("---")
+
+st.markdown("""
+<style>
+/* Executive polish */
+.block-container {padding-top: 1.2rem; padding-bottom: 2rem;}
+h1, h2, h3 {letter-spacing: -0.02em;}
+div[data-testid="stMetricValue"] {font-size: 1.8rem;}
+div[data-testid="stMetricLabel"] {font-size: 0.95rem;}
+/* subtle card feel for expanders */
+div[data-testid="stExpander"] {border-radius: 14px;}
+</style>
+""", unsafe_allow_html=True)
+
 
 TOP_N = 10  # standard row cap for tables
 
@@ -614,6 +627,232 @@ def risk_flag(row):
 supplier_master["risk_flag"] = supplier_master.apply(risk_flag, axis=1)
 supplier_master = supplier_master.sort_values("performance_score", ascending=False)
 
+
+# =========================================================
+# EXECUTIVE ACTION BRIEF (CEO VIEW)
+# =========================================================
+st.header("🧠 Executive Action Brief")
+
+# Use current scope (mirrors decision-support scope). Defaults to All Categories.
+_exec_scope = st.session_state.get("category_choice", "(All Categories)")
+impact_exec = build_pricing_impact(supplier_master, rfqs, _exec_scope)
+
+# Spend shares (dependency risk)
+_total_spend_all = float(supplier_master["total_spend"].sum()) if "total_spend" in supplier_master.columns else 0.0
+supplier_master_exec = supplier_master.copy()
+supplier_master_exec["spend_share_pct"] = 0.0
+if _total_spend_all > 0:
+    supplier_master_exec["spend_share_pct"] = (supplier_master_exec["total_spend"] / _total_spend_all * 100.0).round(1)
+
+def _dep_flag(pct: float) -> str:
+    try:
+        p = float(pct)
+    except Exception:
+        return ""
+    if p >= 35:
+        return "🔴 Critical"
+    if p >= 20:
+        return "🟠 High"
+    if p >= 10:
+        return "🟡 Moderate"
+    return "🟢 Low"
+
+supplier_master_exec["dependence_risk"] = supplier_master_exec["spend_share_pct"].apply(_dep_flag)
+
+# Switchability (how many alternatives exist for the same RFQ line)
+def switchability_by_supplier(rfqs_df: pd.DataFrame, category_choice: str) -> pd.DataFrame:
+    if rfqs_df is None or rfqs_df.empty:
+        return pd.DataFrame(columns=["supplier_name", "avg_alternatives", "switchability"])
+    r = _add_part_category(rfqs_df)
+    if category_choice != "(All Categories)":
+        r = r[r["part_category"] == category_choice]
+    if r.empty:
+        return pd.DataFrame(columns=["supplier_name", "avg_alternatives", "switchability"])
+
+    r = r.copy()
+    r["quoted_price"] = pd.to_numeric(r["quoted_price"], errors="coerce")
+    r = r[(r["quoted_price"].notna()) & (r["quoted_price"] > 0)]
+    if r.empty:
+        return pd.DataFrame(columns=["supplier_name", "avg_alternatives", "switchability"])
+
+    line_key = _pick_rfq_line_key(r)
+    if line_key is None:
+        return pd.DataFrame(columns=["supplier_name", "avg_alternatives", "switchability"])
+
+    r["_rfq_line_key"] = r[line_key].astype(str)
+    if line_key == "part_description":
+        r["_rfq_line_key"] = r["_rfq_line_key"].apply(_normalize_part_text)
+
+    # alternatives per line = number of suppliers quoting that same line minus 1
+    alt_counts = r.groupby("_rfq_line_key")["supplier_name"].nunique().reset_index(name="suppliers_for_line")
+    r = r.merge(alt_counts, on="_rfq_line_key", how="left")
+    r["alternatives"] = (r["suppliers_for_line"] - 1).clip(lower=0)
+
+    g = r.groupby("supplier_name", dropna=False)["alternatives"].mean().reset_index()
+    g = g.rename(columns={"alternatives": "avg_alternatives"})
+    g["avg_alternatives"] = g["avg_alternatives"].round(1)
+
+    def _sw(a):
+        try:
+            x = float(a)
+        except Exception:
+            return "LOW"
+        if x >= 2.0:
+            return "HIGH"
+        if x >= 1.0:
+            return "MED"
+        return "LOW"
+
+    g["switchability"] = g["avg_alternatives"].apply(_sw)
+    return g
+
+sw = switchability_by_supplier(rfqs, _exec_scope)
+impact_exec = impact_exec.merge(sw, on="supplier_name", how="left")
+impact_exec["avg_alternatives"] = impact_exec["avg_alternatives"].fillna(0.0)
+impact_exec["switchability"] = impact_exec["switchability"].fillna("LOW")
+
+# Executive KPI strip
+k1, k2, k3, k4 = st.columns(4)
+late_spend_exec = float(supplier_master.loc[supplier_master["on_time_rate"] < 85, "total_spend"].sum()) if "on_time_rate" in supplier_master.columns else 0.0
+defect_cost_exec = float((supplier_master["total_spend"] * (supplier_master["defect_rate"] / 100.0) * 0.5).sum()) if {"total_spend", "defect_rate"}.issubset(supplier_master.columns) else 0.0
+pricing_leak_exec = float(impact_exec["estimated_overpay"].sum()) if "estimated_overpay" in impact_exec.columns else 0.0
+critical_deps = int((supplier_master_exec["spend_share_pct"] >= 35).sum())
+
+k1.metric("Potential Pricing Leakage (Model)", _fmt_money(pricing_leak_exec))
+k2.metric("Spend Exposed to Delivery Risk", _fmt_money(late_spend_exec))
+k3.metric("Estimated Cost of Quality Issues", _fmt_money(defect_cost_exec))
+k4.metric("Critical Supplier Dependencies", f"{critical_deps}")
+
+# Top recommended actions (simple, explainable heuristics)
+st.subheader("Top 3 Actions (next 30–60 days)")
+
+actions = []
+
+# 1) Biggest pricing leakage with HIGH/MED switchability
+cand_price = impact_exec.sort_values("estimated_overpay", ascending=False).head(15).copy()
+cand_price = cand_price[cand_price["avg_alternatives"] >= 1.0]
+if len(cand_price) > 0:
+    r0 = cand_price.iloc[0]
+    actions.append(
+        f"**Negotiate or consolidate away from {r0['supplier_name']}** — est. leakage **{_fmt_money(float(r0['estimated_overpay']))}**; switchability **{r0['switchability']}** (avg alternatives ≈ {r0['avg_alternatives']})."
+    )
+
+# 2) Highest defect cost
+if {"total_spend", "defect_rate"}.issubset(supplier_master.columns):
+    tmp_dc = supplier_master.copy()
+    tmp_dc["defect_cost"] = tmp_dc["total_spend"] * (tmp_dc["defect_rate"] / 100.0) * 0.5
+    r1 = tmp_dc.sort_values("defect_cost", ascending=False).head(1).iloc[0]
+    actions.append(
+        f"**Contain quality at {r1['supplier_name']}** — est. quality cost **{_fmt_money(float(r1['defect_cost']))}**; defect rate **{_fmt_pct(float(r1['defect_rate']))}**."
+    )
+
+# 3) Critical dependency risk
+tmp_dep = supplier_master_exec.sort_values("spend_share_pct", ascending=False).head(1)
+if len(tmp_dep) > 0:
+    r2 = tmp_dep.iloc[0]
+    actions.append(
+        f"**De-risk dependency on {r2['supplier_name']}** — **{_fmt_pct(float(r2['spend_share_pct']))}** of total spend; dependence risk **{r2['dependence_risk']}**. Establish 1–2 qualified backups."
+    )
+
+for a in actions[:3]:
+    st.markdown(f"- {a}")
+
+with st.expander("Why these actions? (click for details)", expanded=False):
+    st.markdown(
+        """
+These recommendations are driven by three CEO-level levers:
+
+1. **Pricing competitiveness (apples-to-apples):** We compute supplier deltas vs the **best quote within the same RFQ line** (part-level comparison).
+2. **Operational risk:** On-time and defect rates translate into exposure and cost of poor quality.
+3. **Concentration risk:** High spend concentration on a single supplier increases disruption impact.
+
+Use the tabs and hoverable charts below to drill into drivers by supplier.
+        """
+    )
+
+# Supplier Positioning Matrix (hover for details)
+st.subheader("Supplier Positioning Matrix (hover to drill in)")
+
+# Merge dependence + switchability for tooltips
+pos = impact_exec.merge(
+    supplier_master_exec[["supplier_name", "spend_share_pct", "dependence_risk"]],
+    on="supplier_name",
+    how="left"
+)
+
+pos["pricing_competitiveness"] = (100 - (pos["avg_delta_vs_best"].clip(lower=0))).clip(0, 100)  # higher is better (rough)
+pos["spend_m"] = (pos["total_spend"] / 1_000_000.0).round(2)
+
+chart = (
+    alt.Chart(pos)
+    .mark_circle(opacity=0.85)
+    .encode(
+        x=alt.X("avg_delta_vs_best:Q", title="Avg Delta vs Best (same part) ($/unit) — lower is better"),
+        y=alt.Y("performance_score:Q", title="Performance Score (0–100)"),
+        size=alt.Size("total_spend:Q", title="Spend ($)", legend=None),
+        color=alt.Color("risk_flag:N", scale=risk_color_scale, title="Risk Flag"),
+        tooltip=[
+            alt.Tooltip("supplier_name:N", title="Supplier"),
+            alt.Tooltip("risk_flag:N", title="Risk"),
+            alt.Tooltip("performance_score:Q", title="Performance", format=".1f"),
+            alt.Tooltip("avg_delta_vs_best:Q", title="Δ vs best ($/unit)", format=".2f"),
+            alt.Tooltip("avg_alternatives:Q", title="Avg alternatives", format=".1f"),
+            alt.Tooltip("switchability:N", title="Switchability"),
+            alt.Tooltip("spend_m:Q", title="Spend ($M)", format=".2f"),
+            alt.Tooltip("spend_share_pct:Q", title="Spend share (%)", format=".1f"),
+            alt.Tooltip("dependence_risk:N", title="Dependence risk"),
+        ],
+    )
+    .properties(height=360)
+)
+
+st.altair_chart(chart, use_container_width=True)
+
+# 30-day plan (lightweight, executive)
+st.subheader("🧭 30-Day Action Plan")
+
+p1, p2 = st.columns(2)
+with p1:
+    st.markdown(
+        """
+**Week 1 — Triage**
+- Review top 5 leakage suppliers and validate on 3–5 RFQ lines each
+- Align thresholds with ops (OTD + quality) and define “do-not-touch” suppliers
+
+**Week 2 — Commercial**
+- Run price fact-base discussions with suppliers showing high deltas vs best
+- Launch should-cost / target pricing for high-volume lines
+        """
+    )
+with p2:
+    st.markdown(
+        """
+**Week 3 — Resilience**
+- For any supplier with **≥35%** spend share: qualify at least **1 backup**
+- For delivery-risk spend: confirm lead times, capacity, and expedite levers
+
+**Week 4 — Lock in**
+- Consolidate where switchability is HIGH/MED and performance is acceptable
+- Deploy monthly supplier scorecard review cadence (OTD, defects, pricing index)
+        """
+    )
+
+with st.expander("Data limitations & what we'd add in production", expanded=False):
+    st.markdown(
+        """
+**This prototype is intentionally lightweight.** For a production-grade deployment we'd connect to:
+- ERP/PO + receipts for accurate quantities and lead times
+- Inspection system for defect severities and cost multipliers
+- Contract pricing terms (tiering, freight, MOQ) and commodity indexes
+
+**Next improvements (high ROI):**
+- Normalize part master (part numbers) to improve “same part” comparisons
+- Weight pricing deltas by quantities (not just spend/avg price estimates)
+- Track lead-time variability and expedite frequency as delivery-risk drivers
+        """
+    )
+
+st.markdown("---")
 # =========================================================
 # SEARCH
 # =========================================================
