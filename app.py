@@ -12,7 +12,7 @@ st.set_page_config(page_title="Hoth Intelligence Hub", layout="wide")
 st.title("🚀 Hoth Industries: Supplier Intelligence Hub")
 st.markdown("---")
 
-TOP_N = 10  # standard row cap for tables
+TOP_N = 10 # standard row cap for tables
 
 # =========================================================
 # RESET FILTERS (SESSION STATE) — SAFE PATTERN
@@ -65,7 +65,7 @@ with top_right:
 # CONSISTENT RISK COLOR MAP (charts match table semantics)
 # =========================================================
 RISK_ORDER = ["🔴 Quality Risk", "🟠 Delivery Risk", "🟡 Cost Risk", "🟢 Strategic"]
-RISK_COLORS = ["#D62728", "#FF7F0E", "#F2C12E", "#2CA02C"]  # red, orange, gold, green
+RISK_COLORS = ["#D62728", "#FF7F0E", "#F2C12E", "#2CA02C"] # red, orange, gold, green
 risk_color_scale = alt.Scale(domain=RISK_ORDER, range=RISK_COLORS)
 
 # =========================================================
@@ -110,8 +110,8 @@ def with_rank(df: pd.DataFrame) -> pd.DataFrame:
 
 # =========================================================
 # EXEC-FRIENDLY FORMATTING (ROBUST)
-#   We format values as STRINGS before st.dataframe(),
-#   so commas + no trailing zeros ALWAYS show.
+# We format values as STRINGS before st.dataframe(),
+# so commas + no trailing zeros ALWAYS show.
 # =========================================================
 def _fmt_money(x):
     if pd.isna(x):
@@ -210,7 +210,7 @@ def apply_entity_resolution(df: pd.DataFrame, col: str, manual_key_map: dict | N
         vals = list(set([v.strip() for v in vals]))
         if not vals:
             return ""
-        vals.sort(key=lambda x: (-len(x), x))  # longest first, then alphabetical
+        vals.sort(key=lambda x: (-len(x), x)) # longest first, then alphabetical
         return vals[0]
 
     canonical = out.groupby("_supplier_key")[col].agg(pick_longest_name).to_dict()
@@ -281,6 +281,51 @@ def categorize_part(text: str) -> str:
         if any(kw in t for kw in kws):
             return cat
     return "Other / Unknown"
+
+# =========================================================
+# OPTION A: PART-CATEGORY SCOPED PRICING (RFQs)
+# =========================================================
+def rfqs_with_part_category(rfqs_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Adds rfq_part_col-derived part_category to rfqs_df and returns a copy.
+    Uses categorize_part() so the decision dropdown and pricing scope match.
+    """
+    rfq_part_col_local = "part_description" if "part_description" in rfqs_df.columns else find_best_col(
+        rfqs_df, ["part_description", "commodity", "category", "part", "component", "item", "material", "product", "description", "item_description"]
+    )
+    out = rfqs_df.copy()
+    if rfq_part_col_local:
+        out["part_category"] = out[rfq_part_col_local].apply(categorize_part)
+    else:
+        out["part_category"] = "Other / Unknown"
+    return out
+
+def scoped_avg_price_by_supplier(rfqs_df: pd.DataFrame, category_choice: str) -> pd.DataFrame:
+    """
+    Returns supplier-level avg quoted_price within selected part_category scope.
+    If category_choice == "(All Categories)" -> overall avg.
+    """
+    r = rfqs_with_part_category(rfqs_df)
+    if category_choice != "(All Categories)":
+        r = r[r["part_category"] == category_choice]
+    if r.empty:
+        return pd.DataFrame(columns=["supplier_name", "avg_price_scope"])
+    g = (
+        r.groupby("supplier_name", dropna=False)["quoted_price"]
+        .mean()
+        .reset_index()
+        .rename(columns={"quoted_price": "avg_price_scope"})
+    )
+    g["avg_price_scope"] = g["avg_price_scope"].round(2)
+    return g
+
+def best_price_in_scope(avg_price_scope_df: pd.DataFrame) -> float | None:
+    if avg_price_scope_df.empty:
+        return None
+    s = avg_price_scope_df["avg_price_scope"].replace(0, pd.NA).dropna()
+    if len(s) == 0:
+        return None
+    return float(s.min())
 
 # =========================================================
 # SUPPLIER NOTES
@@ -399,6 +444,10 @@ with st.expander("ℹ️ Definitions & Scoring (how to interpret the dashboard)"
 - 🟠 **Delivery Risk**: On-Time Rate ≤ 85%
 - 🟡 **Cost Risk**: Price Score ≤ 40
 - 🟢 **Strategic**: none triggered
+
+**Pricing Delta vs Best (important)**
+- **Price Delta vs Best ($/unit)** is benchmarked to the **best supplier within the selected Part Category scope** (RFQs only).
+- If scope is **(All Categories)**, this becomes a directional “pricing posture” metric across mixed parts.
         """
     )
 
@@ -503,30 +552,58 @@ top_tbl = apply_search(supplier_master.sort_values("performance_score", ascendin
 show_table(with_rank(format_for_display(top_tbl, cols_master)), TOP_N)
 
 # =========================================================
-# CONSOLIDATION OPPORTUNITIES
+# CONSOLIDATION OPPORTUNITIES (Option A: category-scoped best price)
 # =========================================================
 st.markdown("---")
 st.header("💰 Supplier Consolidation Opportunities")
 
-pricing_pool = supplier_master[supplier_master["avg_price"] > 0].copy()
-if pricing_pool.empty:
-    st.warning("No RFQ pricing available (avg_price > 0) — cannot estimate consolidation savings.")
-else:
-    best_price = float(pricing_pool["avg_price"].min())
-    tmp = supplier_master.copy()
-    tmp["price_delta_vs_best"] = (tmp["avg_price"] - best_price).clip(lower=0)
+# Use same category choice used by Decision Support (defaults to All Categories)
+selected_cat = st.session_state.get("category_choice", "(All Categories)")
+
+avg_scope = scoped_avg_price_by_supplier(rfqs, selected_cat)
+best_scope = best_price_in_scope(avg_scope)
+
+tmp = supplier_master.merge(avg_scope, on="supplier_name", how="left")
+tmp["avg_price_used"] = tmp["avg_price_scope"].fillna(tmp["avg_price"])
+
+# If scoped RFQs are empty, fall back to overall to avoid "blank metric" situations
+if best_scope is None:
+    overall_scope = scoped_avg_price_by_supplier(rfqs, "(All Categories)")
+    best_overall = best_price_in_scope(overall_scope)
+
+    if best_overall is None:
+        st.warning("No RFQ pricing available (avg_price > 0) — cannot estimate consolidation savings.")
+        tmp["price_delta_vs_best"] = 0.0
+        tmp["estimated_savings"] = 0.0
+    else:
+        st.warning("No RFQ pricing found for the selected part category scope — using overall pricing deltas.")
+        best_scope = best_overall
+
+# Compute model if we have any benchmark
+if best_scope is not None and best_scope > 0:
+    tmp["price_delta_vs_best"] = (tmp["avg_price_used"] - best_scope).clip(lower=0)
 
     tmp["est_units"] = 0.0
-    mask_price = tmp["avg_price"] > 0
-    tmp.loc[mask_price, "est_units"] = tmp.loc[mask_price, "total_spend"] / tmp.loc[mask_price, "avg_price"]
+    mask_price = tmp["avg_price_used"] > 0
+    tmp.loc[mask_price, "est_units"] = tmp.loc[mask_price, "total_spend"] / tmp.loc[mask_price, "avg_price_used"]
 
     tmp["estimated_savings"] = (tmp["price_delta_vs_best"] * tmp["est_units"]).fillna(0)
 
     st.metric("Estimated Annual Savings via Consolidation (Model)", _fmt_money(float(tmp["estimated_savings"].sum())))
 
+    tmp_display = tmp.copy()
+    tmp_display["avg_price"] = tmp_display["avg_price_used"]
+
     cols_cons = ["supplier_name", "total_spend", "avg_price", "price_delta_vs_best", "estimated_savings", "risk_flag"]
-    show_table(with_rank(format_for_display(tmp.sort_values("estimated_savings", ascending=False), cols_cons)), TOP_N)
-    st.caption("Model: benchmark vs lowest non-zero RFQ avg price; units approximated as spend / avg_price.")
+    show_table(with_rank(format_for_display(tmp_display.sort_values("estimated_savings", ascending=False), cols_cons)), TOP_N)
+
+    scope_label = "All Categories" if selected_cat == "(All Categories)" else selected_cat
+    st.caption(
+        f"Model: benchmark vs lowest non-zero **scoped** RFQ avg price (scope = {scope_label}); "
+        "units approximated as spend / scoped avg price."
+    )
+else:
+    st.warning("No valid benchmark price found — cannot estimate consolidation savings in this scope.")
 
 # =========================================================
 # ⚡ REAL-TIME DECISION SUPPORT
@@ -560,8 +637,8 @@ with c2:
 with c3:
     st.write("Weights (Delivery / Quality / Cost)")
     st.slider("Delivery weight", 0.0, 1.0, 0.45, 0.05, key="w_delivery")
-    st.slider("Quality weight",  0.0, 1.0, 0.35, 0.05, key="w_quality")
-    st.slider("Cost weight",     0.0, 1.0, 0.20, 0.05, key="w_cost")
+    st.slider("Quality weight", 0.0, 1.0, 0.35, 0.05, key="w_quality")
+    st.slider("Cost weight", 0.0, 1.0, 0.20, 0.05, key="w_cost")
 
 w_sum = st.session_state["w_delivery"] + st.session_state["w_quality"] + st.session_state["w_cost"]
 if w_sum == 0:
@@ -710,24 +787,40 @@ show_table(with_rank(format_for_display(decision_view, cols_decision)), TOP_N)
 st.metric("Suppliers meeting thresholds", f"{int(decision_kpi['fit'].sum())} / {len(decision_kpi)}")
 
 # =========================================================
-# FINANCIAL IMPACT (formatted $)
+# FINANCIAL IMPACT (Option A: category-scoped pricing benchmark)
 # =========================================================
 st.markdown("---")
 st.header("💰 Estimated Financial Impact (Prototype)")
 
-nonzero_prices = supplier_master["avg_price"].replace(0, pd.NA).dropna()
-lowest_price = nonzero_prices.min() if len(nonzero_prices) else pd.NA
+selected_cat_impact = st.session_state.get("category_choice", "(All Categories)")
 
-impact_df = supplier_master.copy()
+avg_scope_imp = scoped_avg_price_by_supplier(rfqs, selected_cat_impact)
+best_scope_imp = best_price_in_scope(avg_scope_imp)
+
+impact_df = supplier_master.merge(avg_scope_imp, on="supplier_name", how="left")
+impact_df["avg_price_used"] = impact_df["avg_price_scope"].fillna(impact_df["avg_price"])
+
+# If scope has no RFQs, fall back to overall
+if best_scope_imp is None:
+    overall_scope_imp = scoped_avg_price_by_supplier(rfqs, "(All Categories)")
+    best_overall_imp = best_price_in_scope(overall_scope_imp)
+    if best_overall_imp is pd.NA or best_overall_imp is None:
+        best_scope_imp = None
+    else:
+        st.warning("No RFQ pricing found for selected category scope — using overall pricing benchmark.")
+        best_scope_imp = best_overall_imp
+
 impact_df["est_units"] = 0.0
-mask_price = impact_df["avg_price"] > 0
-impact_df.loc[mask_price, "est_units"] = impact_df.loc[mask_price, "total_spend"] / impact_df.loc[mask_price, "avg_price"]
+mask_price = impact_df["avg_price_used"] > 0
+impact_df.loc[mask_price, "est_units"] = impact_df.loc[mask_price, "total_spend"] / impact_df.loc[mask_price, "avg_price_used"]
 
 impact_df["estimated_overpay"] = 0.0
 impact_df["price_delta_vs_best"] = 0.0
-if pd.notna(lowest_price):
-    impact_df["price_delta_vs_best"] = (impact_df["avg_price"] - lowest_price).clip(lower=0)
+if best_scope_imp is not None and best_scope_imp > 0:
+    impact_df["price_delta_vs_best"] = (impact_df["avg_price_used"] - best_scope_imp).clip(lower=0)
     impact_df["estimated_overpay"] = (impact_df["price_delta_vs_best"] * impact_df["est_units"]).fillna(0)
+else:
+    st.warning("No valid pricing benchmark available — pricing leakage estimate disabled.")
 
 impact_df["defect_cost"] = impact_df["total_spend"] * (impact_df["defect_rate"] / 100.0) * 0.5
 late_spend = float(impact_df.loc[impact_df["on_time_rate"] < 85, "total_spend"].sum())
@@ -736,6 +829,10 @@ c1, c2, c3 = st.columns(3)
 c1.metric("Potential Cost Leakage ($)", _fmt_money(float(impact_df["estimated_overpay"].sum())))
 c2.metric("Estimated Cost of Quality Issues ($)", _fmt_money(float(impact_df["defect_cost"].sum())))
 c3.metric("Spend Exposed to Delivery Risk ($)", _fmt_money(late_spend))
+
+# Display avg_price_used under the existing Avg RFQ Price column label
+impact_df_display = impact_df.copy()
+impact_df_display["avg_price"] = impact_df_display["avg_price_used"]
 
 with st.expander("Show impact drivers by supplier"):
     impact_cols = [
@@ -751,7 +848,10 @@ with st.expander("Show impact drivers by supplier"):
         "performance_score",
         "risk_flag",
     ]
-    show_table(with_rank(format_for_display(impact_df.sort_values("estimated_overpay", ascending=False), impact_cols)), TOP_N)
+    show_table(with_rank(format_for_display(impact_df_display.sort_values("estimated_overpay", ascending=False), impact_cols)), TOP_N)
+
+scope_label_imp = "All Categories" if selected_cat_impact == "(All Categories)" else selected_cat_impact
+st.caption(f"Pricing benchmark for leakage estimate is computed within scope: **{scope_label_imp}** (RFQs only).")
 
 with st.expander("Debug: show column names"):
     st.write("Orders columns:", list(orders.columns))
