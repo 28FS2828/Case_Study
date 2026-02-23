@@ -1,0 +1,234 @@
+SUPPLIER PERFORMANCE NOTES - HOTH INDUSTRIES
+Compiled from emails, meeting notes, and procurement team feedback
+Last updated: October 2025
+
+================================================================================
+QUICKFAB INDUSTRIES - CAUTION / HIGH RISK
+================================================================================
+
+Email from Cody (11/30/2021):
+QuickFab delivered the heat exchanger order a week late. Quality was okay but the 
+late delivery caused us to miss our customer deadline. Third time this has happened.
+
+Email from Sarah (3/5/2022):
+QuickFab was 4 weeks late on PO-2022-006. That's unacceptable. They quoted 3 weeks, 
+delivered in 7 weeks. The brazing quality was also poor - 11 units leaked during 
+pressure testing. Had to send back for rework which added another 2 weeks.
+
+Meeting notes (5/12/2022):
+Discussed QuickFab's repeated issues. Mike wants to keep using them because they're 
+20-25% cheaper than other suppliers. Graham argued that quality issues cost more than 
+we save. No decision made.
+
+Email from Cody (5/8/2022):
+QuickFab late again on the fin order (PO-2022-010). Fins were wrong thickness - 
+completely unusable. 135 out of 950 parts rejected. They're offering to redo them 
+but that's another 4 weeks. Customer is NOT happy.
+
+Email from Sarah (8/20/2022):
+Despite all the issues with QuickFab, they're still our most frequent supplier for 
+aluminum work because of pricing. We need alternatives but nobody can match their quotes.
+
+Email from Graham (3/8/2023):
+Used QuickFab again for PO-2023-007 because Mike insisted on lowest cost. Predicted 
+it would be late and have quality issues. I was right on both counts.
+
+Cody's note (6/25/2023):
+QuickFab's weld quality is consistently terrible. Every heat exchanger order has issues. 
+We should really stop using them for pressure vessels. Brackets and fins are fine, 
+but anything that needs structural integrity is a gamble.
+
+Email from Mike (5/10/2024):
+I know QuickFab has issues, but we're under pressure to cut costs. As long as they're 
+30% cheaper, we'll keep using them and just plan for the delays and rework.
+
+Sarah's email (9/30/2024):
+QuickFab late AGAIN on PO-2024-021. That's the 8th late delivery this year out of 
+9 orders. We need to seriously reconsider using them.
+
+================================================================================
+STELLAR METALWORKS - GOLD STANDARD
+================================================================================
+
+Email from Graham (11/8/2021):
+Stellar Metalworks delivered early again. All 480 brackets were perfect - no burrs, 
+no defects, excellent finish. This is why we pay premium for them.
+
+Meeting notes (2/20/2022):
+Stellar has never missed a delivery date in 3 years of working with them. Yes they're 
+15-20% more expensive, but zero rework, zero delays, zero headaches. For critical 
+customer deliveries, they're worth every penny.
+
+Email from Cody (6/12/2022):
+Stellar's quality is unmatched. Every part arrives deburred, finished, and perfectly 
+packaged. They provide material certs and test reports without being asked. If only 
+everyone could be like them.
+
+Email from Sarah (3/15/2023):
+Stellar quoted higher than QuickFab again. Mike questioned why we use them. I showed 
+him QuickFab's rejection history - that ended the conversation. Went with Stellar.
+
+Graham's note (7/20/2023):
+Stellar is who I call when I absolutely cannot have problems. Customer delivery in 
+2 weeks with zero margin for error? Stellar every time. Never regretted it.
+
+Email from Cody (2/18/2024):
+98 shafts from Stellar - zero defects. This is order #15 or #16 from them. Still 
+waiting for the first rejection. They set the bar for what "good supplier" means.
+
+Meeting notes (9/10/2024):
+Why don't we use Stellar for everything? Answer: pricing and capacity. They're maxed 
+out on motor shafts and can't take large orders. Also 20% premium pricing is hard to 
+justify when Mike is cutting costs.
+
+================================================================================
+APEX MANUFACTURING / APEX MFG / APEX MFG INC / APEX MANUFACTURING INC
+================================================================================
+
+**NOTE: All four names are THE SAME COMPANY. Someone please fix this in SAP.**
+
+Email from Sarah (10/20/2021):
+Apex (on Industrial Drive) has been our default fan supplier for years. Solid B+ 
+performance. Not amazing, not terrible. Pricing is fair, delivery is usually on time.
+
+Meeting notes (4/12/2022):
+Procurement meeting confusion: Sarah was talking about "APEX MFG" and Cody was 
+referencing "Apex Manufacturing Inc" but they're the same company. This naming 
+inconsistency makes it impossible to track their true performance across orders.
+
+Email from Mike (1/25/2023):
+Apex is reliable. They're our "default" when we don't have strong feelings either way. 
+Fan motors, standard brackets, basic assemblies - Apex is fine for all of it.
+
+Cody's note (8/15/2023):
+Apex quality has been consistent over the years. 2-3% rejection rate which is 
+acceptable. Delivery is 85-90% on time. Nothing spectacular but dependable.
+
+Email from Graham (5/20/2024):
+We probably give 40% of our fan business to Apex just because they're "who we use." 
+Not sure if that's optimal but they've never had a major failure.
+
+Sarah's email (9/15/2024):
+Tried to run analytics on Apex performance but gave up because they appear under 4 
+different names in our system. Someone needs to clean this up so we can actually 
+see their full history.
+
+================================================================================
+TITANFORGE LLC - MOTORS ONLY, STAY IN YOUR LANE
+================================================================================
+
+Email from Cody (11/18/2021):
+TitanForge is excellent for motors. Best in class for 3HP, 5HP, 7.5HP, and 10HP units. 
+DO NOT use them for anything else - learned that the hard way.
+
+Meeting notes (6/8/2022):
+TitanForge tried to sell us on their new bearing line. I told them stick to motors, 
+that's what you're good at. Mike gave them a trial order anyway. Prediction: regret.
+
+Email from Graham (10/5/2022):
+TitanForge motors: excellent. TitanForge bearings: mediocre. Let's stick with what works.
+
+Email from Sarah (3/20/2023):
+TitanForge's motor pricing is competitive and their lead times are accurate. When they 
+say 5 weeks, it's 5 weeks. Reliable for motors, that's it.
+
+Cody's note (8/10/2024):
+TitanForge wanted to quote on control panels. I politely declined. They're a motor shop. 
+Period.
+
+================================================================================
+AEROFLOW SYSTEMS - NICHE SPECIALIST (AIR HANDLING ONLY)
+================================================================================
+
+Email from Sarah (2/15/2022):
+AeroFlow specializes in air handling components: dampers, louvers, filters. Premium 
+pricing but excellent quality. Don't bother asking them to quote motors or heat 
+exchangers - not their expertise.
+
+Meeting notes (7/22/2022):
+AeroFlow's lead times are the most accurate in our supplier base. If they say 3 weeks, 
+it's exactly 3 weeks. Never had a surprise delivery. Worth the premium for project 
+planning reliability.
+
+Email from Cody (12/5/2022):
+AeroFlow's HEPA filters are certified for cleanroom environments. When we have data 
+center customers with strict air quality specs, they're the only supplier we trust.
+
+Graham's note (6/15/2023):
+AeroFlow knows their niche and stays in it. Respect that. Don't ask them to be something 
+they're not.
+
+Email from Sarah (4/10/2024):
+AeroFlow raised prices 8% this year but their quality and delivery are still flawless. 
+Customers don't complain about AeroFlow parts - that's worth the premium.
+
+================================================================================
+PRECISION THERMAL CO - ELECTRONICS & CONTROLS EXPERT
+================================================================================
+
+Email from Graham (1/28/2022):
+Precision Thermal is our go-to for anything electronic. Temperature controllers, sensors, 
+PLC modules, VFDs. They actually understand control systems engineering, unlike the 
+fabrication shops who just quote on everything.
+
+Meeting notes (5/15/2022):
+Precision Thermal helped us debug a sensor integration issue even though it wasn't 
+related to their parts. Excellent technical support. This is why we pay slightly more.
+
+Email from Cody (9/20/2022):
+If it has a circuit board or needs calibration, buy it from Precision Thermal. If it's 
+sheet metal, buy it elsewhere. They know their lane.
+
+Email from Sarah (2/10/2023):
+Precision Thermal's pricing is fair and transparent. Never had surprise charges or 
+delivery issues. Solid technical partner.
+
+Graham's note (7/18/2024):
+Precision Thermal is one of our most reliable suppliers. They understand data center 
+requirements and electrical specs. Trust them completely for control components.
+
+================================================================================
+GENERAL PROCUREMENT ISSUES
+================================================================================
+
+Email from Mike (7/25/2023):
+We need to get smarter about supplier selection. I keep hearing "we used them before 
+and they had problems" AFTER we've already placed an order. This is costing us real money.
+
+Sarah's email (10/15/2023):
+I send out monthly supplier performance reports but I don't think anyone actually reads 
+them. The data is all there but it's just Excel spreadsheets. People need something more 
+actionable - a dashboard or search tool or something.
+
+Meeting notes (3/20/2024):
+Discussed supplier consolidation strategy. We have 40+ active suppliers but probably 
+only need 15-20. Problem: we don't have good data on who's actually performing vs. 
+who we keep using out of habit.
+
+Cody's note (6/15/2024):
+Data center buildout boom is killing us. Orders are up 3x compared to last year but 
+our supplier base hasn't scaled to match. We're using suppliers we barely know because 
+our good ones (Stellar, Precision) are at capacity. Recipe for disaster.
+
+Email from Graham (8/20/2024):
+QuickFab just delivered another bad batch. That's the 6th quality issue this year. 
+Why do we keep using them? Because Mike looks at price first. We need data that shows 
+the TOTAL cost including rework, delays, and customer complaints.
+
+Sarah's email (9/28/2024):
+Tried to calculate "total cost of ownership" for suppliers but gave up. Too many 
+variables, data is scattered across 3 systems and email. We need this automated somehow.
+
+Meeting notes (10/10/2024):
+Major customer (CoreWeave data center) threatening to switch suppliers because of our 
+delivery inconsistency. This is a $12M annual account. Root cause: we keep using 
+unreliable suppliers because we don't have good performance data at decision time.
+
+Mike's urgent email (10/12/2024):
+We have a $2M sourcing decision coming up in 3 weeks for new data center project. 
+Need to make this decision based on actual data, not gut feel. This is exactly the 
+type of situation where better supplier intelligence would save us.
+
+================================================================================
+END OF NOTES
+================================================================================
