@@ -428,6 +428,49 @@ def rfq_competitiveness_by_supplier(rfqs_df: pd.DataFrame, category_choice: str)
 # =========================================================
 # SUPPLIER NOTES
 # =========================================================
+
+# =========================================================
+# FIX #3 (refactor): Central function for pricing deltas + overpay model
+# =========================================================
+def build_pricing_impact(
+    supplier_master_df: pd.DataFrame,
+    rfqs_df: pd.DataFrame,
+    category_choice: str
+) -> pd.DataFrame:
+    """
+    Returns supplier-level impact model DF merged onto supplier_master.
+
+    - Uses Fix #2: avg_delta_vs_best computed within same RFQ line (rfq_id preferred)
+    - Uses est_units ~ spend / avg_price_scope (fallback to overall avg_price if no scoped rfqs)
+    - estimated_overpay ~ avg_delta_vs_best * est_units
+    """
+    comp = rfq_competitiveness_by_supplier(rfqs_df, category_choice)
+
+    out = supplier_master_df.copy()
+    out = out.merge(comp, on="supplier_name", how="left")
+
+    # Fill missing (suppliers with no RFQs in scope)
+    out["avg_price_scope"] = out["avg_price_scope"].fillna(out["avg_price"])
+    out["avg_delta_vs_best"] = out["avg_delta_vs_best"].fillna(0.0)
+    out["lines"] = out["lines"].fillna(0).astype(int)
+    out["rfqs"] = out["rfqs"].fillna(0).astype(int)
+    out["pct_not_best"] = out["pct_not_best"].fillna(0.0)
+
+    # Estimate units using spend and scoped avg price
+    out["est_units"] = 0.0
+    mask_price = out["avg_price_scope"] > 0
+    out.loc[mask_price, "est_units"] = out.loc[mask_price, "total_spend"] / out.loc[mask_price, "avg_price_scope"]
+
+    out["estimated_overpay"] = (out["avg_delta_vs_best"] * out["est_units"]).fillna(0.0)
+
+    # For display consistency (keep "avg_price" as the used value)
+    out["avg_price"] = out["avg_price_scope"].round(2)
+    out["avg_delta_vs_best"] = out["avg_delta_vs_best"].round(2)
+
+    return out
+
+
+
 def parse_supplier_notes(notes_text: str) -> dict:
     notes = {}
     if not notes_text:
@@ -883,47 +926,6 @@ show_table(with_rank(format_for_display(risk_tbl, cols_master)), TOP_N)
 st.markdown(f"### 🟢 Top Performing Suppliers (Top {TOP_N})")
 top_tbl = apply_search(supplier_master.sort_values("performance_score", ascending=False), st.session_state["search_query"])
 show_table(with_rank(format_for_display(top_tbl, cols_master)), TOP_N)
-
-# =========================================================
-# FIX #3 (refactor): Central function for pricing deltas + overpay model
-# =========================================================
-def build_pricing_impact(
-    supplier_master_df: pd.DataFrame,
-    rfqs_df: pd.DataFrame,
-    category_choice: str
-) -> pd.DataFrame:
-    """
-    Returns supplier-level impact model DF merged onto supplier_master.
-
-    - Uses Fix #2: avg_delta_vs_best computed within same RFQ line (rfq_id preferred)
-    - Uses est_units ~ spend / avg_price_scope (fallback to overall avg_price if no scoped rfqs)
-    - estimated_overpay ~ avg_delta_vs_best * est_units
-    """
-    comp = rfq_competitiveness_by_supplier(rfqs_df, category_choice)
-
-    out = supplier_master_df.copy()
-    out = out.merge(comp, on="supplier_name", how="left")
-
-    # Fill missing (suppliers with no RFQs in scope)
-    out["avg_price_scope"] = out["avg_price_scope"].fillna(out["avg_price"])
-    out["avg_delta_vs_best"] = out["avg_delta_vs_best"].fillna(0.0)
-    out["lines"] = out["lines"].fillna(0).astype(int)
-    out["rfqs"] = out["rfqs"].fillna(0).astype(int)
-    out["pct_not_best"] = out["pct_not_best"].fillna(0.0)
-
-    # Estimate units using spend and scoped avg price
-    out["est_units"] = 0.0
-    mask_price = out["avg_price_scope"] > 0
-    out.loc[mask_price, "est_units"] = out.loc[mask_price, "total_spend"] / out.loc[mask_price, "avg_price_scope"]
-
-    out["estimated_overpay"] = (out["avg_delta_vs_best"] * out["est_units"]).fillna(0.0)
-
-    # For display consistency (keep "avg_price" as the used value)
-    out["avg_price"] = out["avg_price_scope"].round(2)
-    out["avg_delta_vs_best"] = out["avg_delta_vs_best"].round(2)
-
-    return out
-
 
 # =========================================================
 # CONSOLIDATION OPPORTUNITIES (Fix #2 + #3)
