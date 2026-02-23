@@ -16,8 +16,6 @@ TOP_N = 10  # standard row cap for tables
 
 # =========================================================
 # RESET FILTERS (SESSION STATE) — SAFE PATTERN
-#   We do NOT directly overwrite widget keys after widgets render.
-#   Instead: set a reset flag -> rerun -> apply defaults at the top.
 # =========================================================
 DEFAULTS = {
     "search_query": "",
@@ -42,13 +40,13 @@ def init_defaults():
             st.session_state[k] = v
 
 def apply_defaults():
-    # This must run BEFORE any widgets using these keys are created
+    # Must run BEFORE widgets with these keys are created
     for k, v in DEFAULTS.items():
         st.session_state[k] = v
 
 init_defaults()
 
-# Apply reset flags BEFORE any widgets are created (prevents StreamlitAPIException)
+# Apply reset flags BEFORE any widgets are created
 if st.session_state.get(RESET_ALL_FLAG) or st.session_state.get(RESET_DECISION_FLAG):
     apply_defaults()
     st.session_state.pop(RESET_ALL_FLAG, None)
@@ -111,51 +109,74 @@ def with_rank(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 # =========================================================
-# EXEC-FRIENDLY TABLE FORMATTING ($ commas, %, etc.)
+# EXEC-FRIENDLY FORMATTING (ROBUST)
+#   We format values as STRINGS before st.dataframe(),
+#   so commas + no trailing zeros ALWAYS show.
 # =========================================================
 def _fmt_money(x):
     if pd.isna(x):
         return ""
-    return f"${x:,.0f}"
+    try:
+        return "${:,.0f}".format(float(x))
+    except Exception:
+        return str(x)
 
 def _fmt_money_2(x):
     if pd.isna(x):
         return ""
-    return f"${x:,.2f}"
+    try:
+        return "${:,.2f}".format(float(x))
+    except Exception:
+        return str(x)
 
 def _fmt_pct(x):
     if pd.isna(x):
         return ""
-    return f"{x:.1f}%"
+    try:
+        return "{:.1f}%".format(float(x))
+    except Exception:
+        return str(x)
 
 def _fmt_score(x):
     if pd.isna(x):
         return ""
-    return f"{x:.1f}"
+    try:
+        return "{:.1f}".format(float(x))
+    except Exception:
+        return str(x)
 
-def style_exec_table(df: pd.DataFrame):
-    money_cols = [c for c in df.columns if "($)" in c and "($/unit)" not in c]
-    money_unit_cols = [c for c in df.columns if "($/unit)" in c]
-    pct_cols = [c for c in df.columns if "(%)" in c]
-    score_cols = [c for c in df.columns if "(0–100)" in c or "(0-100)" in c]
+def dataframe_pretty(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert selected columns into pretty strings so Streamlit always displays:
+    - $ with commas (no trailing zeros)
+    - $/unit with cents
+    - % with 1 decimal
+    - scores with 1 decimal
+    """
+    out = df.copy()
 
-    styler = df.style
-    if money_cols:
-        styler = styler.format({c: _fmt_money for c in money_cols})
-    if money_unit_cols:
-        styler = styler.format({c: _fmt_money_2 for c in money_unit_cols})
-    if pct_cols:
-        styler = styler.format({c: _fmt_pct for c in pct_cols})
-    if score_cols:
-        styler = styler.format({c: _fmt_score for c in score_cols})
-    return styler
+    for c in out.columns:
+        # Money columns: "($)" but not per-unit
+        if "($)" in c and "($/unit)" not in c:
+            out[c] = out[c].apply(_fmt_money)
+        # Per-unit money
+        elif "($/unit)" in c:
+            out[c] = out[c].apply(_fmt_money_2)
+        # Percent columns
+        elif "(%)" in c:
+            out[c] = out[c].apply(_fmt_pct)
+        # Score columns
+        elif "(0–100)" in c or "(0-100)" in c:
+            out[c] = out[c].apply(_fmt_score)
+
+    return out
 
 def show_table(df: pd.DataFrame, max_rows: int = TOP_N):
     df_show = df.head(max_rows) if len(df) > max_rows else df
-    st.dataframe(style_exec_table(df_show), use_container_width=True, hide_index=True)
+    st.dataframe(dataframe_pretty(df_show), use_container_width=True, hide_index=True)
 
 # =========================================================
-# ENTITY RESOLUTION HELPERS
+# ENTITY RESOLUTION
 # =========================================================
 LEGAL_SUFFIXES = {
     "inc", "incorporated", "llc", "l.l.c", "ltd", "limited",
@@ -198,7 +219,7 @@ def apply_entity_resolution(df: pd.DataFrame, col: str, manual_key_map: dict | N
     return out
 
 # =========================================================
-# GENERAL HELPERS
+# HELPERS
 # =========================================================
 def read_csv_flexible(candidates):
     last_err = None
@@ -239,7 +260,7 @@ def find_best_col(df: pd.DataFrame, preferred: list[str]) -> str | None:
     return None
 
 # =========================================================
-# PART CATEGORY (HIGH-LEVEL DROPDOWN) — RULES-BASED
+# PART CATEGORY
 # =========================================================
 def categorize_part(text: str) -> str:
     if pd.isna(text):
@@ -256,14 +277,13 @@ def categorize_part(text: str) -> str:
         ("Metals / Raw Material", ["aluminum", "steel", "stainless", "titanium", "alloy", "bar", "rod", "plate", "sheet metal"]),
         ("Packaging", ["pack", "crate", "box", "foam", "label", "pallet"]),
     ]
-
     for cat, kws in rules:
         if any(kw in t for kw in kws):
             return cat
     return "Other / Unknown"
 
 # =========================================================
-# SUPPLIER NOTES PARSER (lightweight)
+# SUPPLIER NOTES
 # =========================================================
 def parse_supplier_notes(notes_text: str) -> dict:
     notes = {}
@@ -308,7 +328,7 @@ def note_snippet(supplier_notes: dict, supplier_name: str) -> str:
     return line[:200] + ("…" if len(line) > 200 else "")
 
 # =========================================================
-# LOAD + CLEAN DATA
+# LOAD DATA
 # =========================================================
 @st.cache_data
 def load_data():
@@ -333,7 +353,6 @@ def load_data():
         "SUPPLIER_NOTES.txt",
     ])
 
-    # "Default to full company name" via canonical (longest string) + manual merge keys
     manual_key_map = {
         "apex mfg": "apex manufacturing",
         "apex manufacturing inc": "apex manufacturing",
@@ -360,7 +379,7 @@ except Exception as e:
     st.stop()
 
 # =========================================================
-# DEFINITIONS / SCORING
+# DEFINITIONS
 # =========================================================
 with st.expander("ℹ️ Definitions & Scoring (how to interpret the dashboard)", expanded=False):
     st.markdown(
@@ -384,7 +403,7 @@ with st.expander("ℹ️ Definitions & Scoring (how to interpret the dashboard)"
     )
 
 # =========================================================
-# KPI CALCULATIONS (MASTER)
+# MASTER KPIs
 # =========================================================
 required_orders_cols = {"order_id", "supplier_name", "po_amount", "promised_date", "actual_delivery_date"}
 missing = required_orders_cols - set(orders.columns)
@@ -464,7 +483,7 @@ st.text_input(
 filtered_master = apply_search(supplier_master, st.session_state["search_query"])
 
 # =========================================================
-# TABLES (standardized)
+# TABLES
 # =========================================================
 st.subheader(f"🏭 Unified Supplier Intelligence View (Top {TOP_N})")
 cols_master = ["supplier_name", "total_spend", "on_time_rate", "defect_rate", "avg_price", "price_score", "performance_score", "risk_flag"]
@@ -502,6 +521,7 @@ else:
     tmp.loc[mask_price, "est_units"] = tmp.loc[mask_price, "total_spend"] / tmp.loc[mask_price, "avg_price"]
 
     tmp["estimated_savings"] = (tmp["price_delta_vs_best"] * tmp["est_units"]).fillna(0)
+
     st.metric("Estimated Annual Savings via Consolidation (Model)", _fmt_money(float(tmp["estimated_savings"].sum())))
 
     cols_cons = ["supplier_name", "total_spend", "avg_price", "price_delta_vs_best", "estimated_savings", "risk_flag"]
