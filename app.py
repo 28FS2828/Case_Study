@@ -102,7 +102,7 @@ DEFAULTS = {
 
 RESET_FLAG = "__reset__"
 
-RISK_ORDER = ["🔴 Quality Risk", "🟠 Delivery Risk", "🟡 Cost Risk", "🟢 Strategic"]
+RISK_ORDER = ["🔴 Quality Risk", "🟠 Delivery Risk", "🟡 Cost Risk", "🟢 Strong Performer"]
 RISK_COLORS = ["#D62728", "#FF7F0E", "#F2C12E", "#2CA02C"]
 risk_color_scale = alt.Scale(domain=RISK_ORDER, range=RISK_COLORS)
 
@@ -567,13 +567,13 @@ supplier_master["spend_share_pct"] = (
 )
 
 def risk_flag(row):
-    if row["defect_rate"] >= 8:
+    if row["defect_rate"] >= 6:
         return "🔴 Quality Risk"
     if row["on_time_rate"] <= 85:
         return "🟠 Delivery Risk"
     if row["price_score"] <= 40:
         return "🟡 Cost Risk"
-    return "🟢 Strategic"
+    return "🟢 Strong Performer"
 
 supplier_master["risk_flag"] = supplier_master.apply(risk_flag, axis=1)
 supplier_master = supplier_master.sort_values("performance_score", ascending=False)
@@ -1003,7 +1003,32 @@ with tab_intel:
             m1, m2, m3, m4, m5 = st.columns(5)
             m1.metric("On-Time Rate", _fmt_pct(row["on_time_rate"]))
             m2.metric("Defect Rate", _fmt_pct(row["defect_rate"]))
-            m3.metric("Performance Score", _fmt_score(row["performance_score"]) + " / 100")
+            # Performance Score explanation (hover + optional details)
+            st.markdown(
+                '''<style>
+                .ps-help{display:inline-block; margin-left:6px; font-weight:800; color:#6b7280; cursor:help;}
+                </style>''',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f'<div style="margin-bottom:6px;"><span style="font-size:0.85rem; color:#6b7280; font-weight:650;">Performance Score</span><span class="ps-help" title="Weighted composite: Delivery (45%) + Quality (35%) + Cost (20%). Delivery = on-time rate. Quality = 100 - defect rate. Cost = price score vs max quote.">?</span></div>',
+                unsafe_allow_html=True,
+            )
+            m3.metric("", _fmt_score(row["performance_score"]) + " / 100")
+            m4.metric("Total Spend", _fmt_money(row["total_spend"]))
+            m5.metric("Avg Quoted Price", _fmt_money_2(row["avg_price"]) + " /unit")
+
+            with st.expander("How Performance Score is calculated", expanded=False):
+                st.markdown(
+                    "- **Delivery (45%)**: On-Time Rate (%)\n"
+                    "- **Quality (35%)**: 100 − Defect Rate (%)\n"
+                    "- **Cost (20%)**: Price Score (0–100), where lower average quote price scores higher\n"
+                )
+                st.code(
+                    "performance_score = 0.45 * on_time_rate + 0.35 * (100 - defect_rate) + 0.20 * price_score",
+                    language="text",
+                )
+
             m4.metric("Total Spend", _fmt_money(row["total_spend"]))
             m5.metric("Avg Quoted Price", _fmt_money_2(row["avg_price"]) + " /unit")
 
