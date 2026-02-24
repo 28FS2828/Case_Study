@@ -1,4 +1,3 @@
-python
 """
 Hoth Industries — Supplier Intelligence Platform (Interview-Ready, Executive Polished)
 
