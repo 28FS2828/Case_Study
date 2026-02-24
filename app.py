@@ -8,6 +8,10 @@ Fixes (requested):
 4) ✅ Performance Trends: supplier selector is a dropdown (Top 6 / All / Single) + window expanded (up to 48 months)
 5) ✅ No "row shrink" issues: raw data stays raw; aggregations only for KPIs/charts/tables
 
+Update (new):
+6) ✅ Executive Overview: "Priority Actions" replaced with "Executive Strategic Recommendations"
+   - Recommendations are tied to data and, where possible, name credible alternates (same category coverage, low risk).
+
 Run:
     streamlit run app.py
 Data:
@@ -212,7 +216,6 @@ def show_table(df: pd.DataFrame, max_rows: int = TOP_N):
 # ─────────────────────────────────────────────
 # ENTITY RESOLUTION (CRITICAL FOR APEX)
 # ─────────────────────────────────────────────
-# 1) Normalize key
 def normalize_supplier_key(name: str) -> str:
     if pd.isna(name):
         return ""
@@ -223,7 +226,6 @@ def normalize_supplier_key(name: str) -> str:
         parts.pop()
     return " ".join(parts)
 
-# 2) Manual alias key map (normalized -> normalized)
 MANUAL_KEY_MAP = {
     "apex mfg": "apex manufacturing",
     "apex mfg inc": "apex manufacturing",
@@ -231,7 +233,6 @@ MANUAL_KEY_MAP = {
     "apex manufacturing": "apex manufacturing",
 }
 
-# 3) Manual canonical display names (normalized key -> display)
 MANUAL_DISPLAY = {
     "apex manufacturing": "Apex Manufacturing",
 }
@@ -252,7 +253,6 @@ def apply_entity_resolution(df: pd.DataFrame, col: str = "supplier_name") -> pd.
     out[col] = out[col].astype(str).str.strip()
     out["_key"] = out[col].apply(normalize_supplier_key).replace(MANUAL_KEY_MAP)
 
-    # Pick a stable canonical display name per key (prefer longer)
     def pick_longest(vals):
         v = list(set([s.strip() for s in vals if isinstance(s, str) and s.strip()]))
         return sorted(v, key=lambda x: (-len(x), x))[0] if v else ""
@@ -300,14 +300,6 @@ def _add_part_category(df: pd.DataFrame) -> pd.DataFrame:
 # NOTES PARSER (SUPPORTS "NAME / NAME / NAME" HEADERS)
 # ─────────────────────────────────────────────
 def parse_supplier_notes_robust(text: str) -> dict:
-    """
-    Parses blocks separated by long '=' lines.
-    Header can be:
-      - "SUPPLIER - Descriptor"
-      - "SUPPLIER / SUPPLIER INC / SUPPLIER LLC"  (no descriptor)
-    Returns dict keyed by supplier_key:
-      { key: {"header":..., "descriptor":..., "body":...} }
-    """
     notes = {}
     if not text or not str(text).strip():
         return notes
@@ -324,7 +316,6 @@ def parse_supplier_notes_robust(text: str) -> dict:
             i += 1
             continue
 
-        # header line
         j = i + 1
         while j < len(lines) and not lines[j].strip():
             j += 1
@@ -332,20 +323,17 @@ def parse_supplier_notes_robust(text: str) -> dict:
             break
         header = lines[j].strip()
 
-        # optional second sep line
         k = j + 1
         while k < len(lines) and not is_sep(lines[k].strip()):
-            if lines[k].strip():  # non-empty non-sep means body starts here
+            if lines[k].strip():
                 break
             k += 1
         body_start = (k + 1) if (k < len(lines) and is_sep(lines[k].strip())) else (j + 1)
 
-        # capture body until next sep that looks like new block
         body_lines = []
         m = body_start
         while m < len(lines):
             if is_sep(lines[m].strip()):
-                # Look ahead for a header; if present, stop this block
                 look = m + 1
                 while look < len(lines) and not lines[look].strip():
                     look += 1
@@ -361,7 +349,6 @@ def parse_supplier_notes_robust(text: str) -> dict:
             supplier_raw = mm.group(1).strip()
             descriptor = mm.group(2).strip()
 
-        # Support multi-name header: "A / B / C"
         candidates = [supplier_raw]
         if "/" in supplier_raw:
             candidates = [c.strip() for c in supplier_raw.split("/") if c.strip()]
@@ -370,17 +357,12 @@ def parse_supplier_notes_robust(text: str) -> dict:
 
         body = "\n".join(body_lines).strip()
 
-        # Store the same note for each candidate key
         for cand in candidates:
             key = normalize_supplier_key(cand)
             key = MANUAL_KEY_MAP.get(key, key)
             if not key:
                 continue
-            notes[key] = {
-                "header": header,
-                "descriptor": descriptor,
-                "body": body,
-            }
+            notes[key] = {"header": header, "descriptor": descriptor, "body": body}
 
         i = m
 
@@ -452,7 +434,6 @@ def try_load_local():
         ("supplier_orders.csv", "quality_inspections.csv", "rfq_responses.csv", "supplier_notes.txt"),
         ("Copy_of_supplier_orders.csv", "Copy_of_quality_inspections.csv", "Copy_of_rfq_responses.csv", "supplier_notes.txt"),
         ("Copy of supplier_orders.csv", "Copy of quality_inspections.csv", "Copy of rfq_responses.csv", "supplier_notes.txt"),
-        # sandbox / mounted paths
         ("/mnt/data/supplier_orders.csv", "/mnt/data/quality_inspections.csv", "/mnt/data/rfq_responses.csv", "/mnt/data/supplier_notes.txt"),
     ]
     for op, qp, rp, np in candidates:
@@ -503,7 +484,7 @@ for df, cols in [
 # Notes parsing
 supplier_notes = parse_supplier_notes_robust(supplier_notes_text)
 
-# Build key -> display name map (prefer orders canonical; override with MANUAL_DISPLAY)
+# Build key -> display name map
 def pick_longest(vals):
     v = list(set([s.strip() for s in vals if isinstance(s, str) and s.strip()]))
     return sorted(v, key=lambda x: (-len(x), x))[0] if v else ""
@@ -524,10 +505,8 @@ if missing:
     st.error(f"Orders file missing columns: {sorted(missing)}")
     st.stop()
 
-# Spend
 spend = orders.groupby("supplier_key", dropna=False)["po_amount"].sum().reset_index(name="total_spend")
 
-# On-time (exclude rows missing dates)
 ot_valid = orders[orders["actual_delivery_date"].notna() & orders["promised_date"].notna()].copy()
 ot_valid["on_time"] = (ot_valid["actual_delivery_date"] <= ot_valid["promised_date"]).astype(float)
 on_time = ot_valid.groupby("supplier_key", dropna=False)["on_time"].mean().reset_index()
@@ -536,7 +515,6 @@ on_time = on_time.drop(columns=["on_time"])
 
 order_counts = orders.groupby("supplier_key", dropna=False)["order_id"].nunique().reset_index(name="orders")
 
-# Quality: merge supplier_key from orders (source of truth)
 if "order_id" not in quality.columns:
     st.error("quality_inspections.csv must contain 'order_id'.")
     st.stop()
@@ -553,7 +531,6 @@ else:
 defects = q.groupby("supplier_key", dropna=False)["defect_rate"].mean().reset_index()
 defects["defect_rate"] = (defects["defect_rate"] * 100).round(1)
 
-# RFQ avg price (by supplier_key)
 if not {"supplier_name", "supplier_key", "quoted_price"}.issubset(rfqs.columns):
     st.error("rfq_responses.csv must contain 'supplier_name' and 'quoted_price'.")
     st.stop()
@@ -565,7 +542,6 @@ ap = ap[ap["quoted_price"].gt(0) & ap["quoted_price"].notna()].copy()
 ap_by_key = ap.groupby("supplier_key", dropna=False)["quoted_price"].mean().reset_index(name="avg_price")
 ap_by_key["avg_price"] = ap_by_key["avg_price"].round(2)
 
-# Assemble master
 supplier_master = (
     spend.merge(on_time, on="supplier_key", how="left")
     .merge(defects, on="supplier_key", how="left")
@@ -575,7 +551,6 @@ supplier_master = (
 
 supplier_master["supplier_name"] = supplier_master["supplier_key"].apply(key_to_display)
 
-# Scores
 mp = supplier_master["avg_price"].replace(0, pd.NA).max()
 supplier_master["price_score"] = (
     (100 * (1 - supplier_master["avg_price"] / mp)).clip(0, 100).fillna(0) if pd.notna(mp) and mp > 0 else 0.0
@@ -605,6 +580,71 @@ supplier_master = supplier_master.sort_values("performance_score", ascending=Fal
 
 all_suppliers = supplier_master["supplier_name"].dropna().unique().tolist()
 all_suppliers = sorted(all_suppliers)
+
+# ─────────────────────────────────────────────
+# CAPABILITY / CATEGORY COVERAGE (GLOBAL)
+# Used to propose alternates that plausibly make similar parts
+# ─────────────────────────────────────────────
+orders_cat_all = _add_part_category(orders)
+rfqs_cat_all = _add_part_category(rfqs)
+
+cap_orders = orders_cat_all.groupby(["supplier_key", "part_category"]).size().reset_index(name="order_lines")
+cap_rfqs = rfqs_cat_all.groupby(["supplier_key", "part_category"]).size().reset_index(name="rfq_lines")
+
+cap_counts_global = (
+    cap_orders.merge(cap_rfqs, on=["supplier_key", "part_category"], how="outer")
+    .fillna({"order_lines": 0, "rfq_lines": 0})
+)
+cap_counts_global["lines_total"] = (cap_counts_global["order_lines"] + cap_counts_global["rfq_lines"]).astype(int)
+
+def top_category_for_supplier(skey: str) -> str:
+    """Pick the supplier's dominant category by spend from Orders; fallback to RFQ coverage."""
+    if skey:
+        oo = orders_cat_all[orders_cat_all["supplier_key"] == skey].copy()
+        if not oo.empty and "po_amount" in oo.columns:
+            s = oo.groupby("part_category")["po_amount"].sum().sort_values(ascending=False)
+            if len(s):
+                return str(s.index[0])
+        cc = cap_counts_global[cap_counts_global["supplier_key"] == skey].sort_values("lines_total", ascending=False)
+        if not cc.empty:
+            return str(cc.iloc[0]["part_category"])
+    return "(All Categories)"
+
+def recommend_alternatives(
+    target_key: str,
+    category: str,
+    min_lines: int = 2,
+    max_n: int = 2,
+    require_low_risk: bool = True,
+) -> list:
+    """
+    Return list of supplier_names that:
+      - have evidence in the same category (orders or RFQs),
+      - are not the target supplier,
+      - optionally are low risk (not Quality/Delivery),
+      - and are generally strong performers.
+    """
+    if not target_key:
+        return []
+
+    cat = category or "(All Categories)"
+    if cat == "(All Categories)":
+        # broad suggestions: just best overall low-risk suppliers (excluding target)
+        pool = supplier_master.copy()
+    else:
+        eligible = cap_counts_global[
+            (cap_counts_global["part_category"] == cat) & (cap_counts_global["lines_total"] >= int(min_lines))
+        ]["supplier_key"].astype(str).unique().tolist()
+        pool = supplier_master[supplier_master["supplier_key"].isin(eligible)].copy()
+
+    pool = pool[pool["supplier_key"] != target_key].copy()
+    if require_low_risk:
+        pool = pool[~pool["risk_flag"].isin(["🔴 Quality Risk", "🟠 Delivery Risk"])].copy()
+
+    # Rank: performance_score first, then price_score (tie-break)
+    pool = pool.sort_values(["performance_score", "price_score"], ascending=[False, False])
+
+    return pool["supplier_name"].head(max_n).tolist()
 
 # ─────────────────────────────────────────────
 # ANALYTICS HELPERS (KEYED)
@@ -643,7 +683,6 @@ def rfq_competitiveness(rfqs_df: pd.DataFrame, cat: str) -> pd.DataFrame:
     if lk is None:
         return empty
 
-    # Apples-to-apples key
     if lk == "part_description":
         r["_lk"] = r[lk].astype(str).apply(_norm_text)
     else:
@@ -665,7 +704,6 @@ def rfq_competitiveness(rfqs_df: pd.DataFrame, cat: str) -> pd.DataFrame:
     return g.round({"avg_price_scope": 2, "avg_delta_vs_best": 2, "pct_not_best": 1})
 
 def build_pricing_impact(master: pd.DataFrame, rfqs_df: pd.DataFrame, cat: str) -> pd.DataFrame:
-    # master MUST have supplier_key (this prevents the KeyError you hit)
     comp = rfq_competitiveness(rfqs_df, cat)
     out = master.merge(comp, on="supplier_key", how="left")
 
@@ -679,7 +717,6 @@ def build_pricing_impact(master: pd.DataFrame, rfqs_df: pd.DataFrame, cat: str) 
     out["est_units"] = 0.0
     out.loc[mask, "est_units"] = out.loc[mask, "total_spend"] / out.loc[mask, "avg_price_scope"]
 
-    # Executive-friendly label: Estimated Overpay
     out["estimated_overpay"] = (out["avg_delta_vs_best"] * out["est_units"]).fillna(0.0)
     out["avg_price"] = out["avg_price_scope"].round(2)
     out["avg_delta_vs_best"] = out["avg_delta_vs_best"].round(2)
@@ -795,11 +832,11 @@ with tab_overview:
 
     st.markdown("---")
 
-    st.subheader("Priority Actions")
-    st.caption("Clear, explainable recommendations tied to quantified impact (overpay, quality cost, and concentration risk).")
+    st.subheader("Executive Strategic Recommendations")
+    st.caption("Recommendations tie quantified metrics to an action — and (when supported by the data) propose specific alternate suppliers with similar category coverage.")
 
-    def action_card(label: str, title: str, detail: str, why: str):
-        badge_colors = {"Pricing": "#FF7F0E", "Quality": "#D62728", "Concentration": "#6366f1"}
+    def rec_card(label: str, title: str, detail: str, why: str):
+        badge_colors = {"Concentration": "#6366f1", "Delivery": "#FF7F0E", "Quality": "#D62728", "Pricing": "#0ea5e9"}
         c = badge_colors.get(label, "#6b7280")
         st.markdown(
             f"""
@@ -811,7 +848,7 @@ with tab_overview:
       <div class="sub">{detail}</div>
       <div style="height:8px"></div>
       <div style="color:#111827; font-size:0.92rem; line-height:1.35rem;">
-        <span style="font-weight:750;">Why:</span> {why}
+        <span style="font-weight:750;">Rationale:</span> {why}
       </div>
     </div>
   </div>
@@ -820,46 +857,76 @@ with tab_overview:
             unsafe_allow_html=True,
         )
 
-    actions = []
+    recs = []
 
-    cand = impact_exec[impact_exec["avg_alternatives"] >= 1].sort_values("estimated_overpay", ascending=False)
-    if len(cand):
+    # 1) Concentration risk: top spend-share supplier
+    top_conc = supplier_master.sort_values("spend_share_pct", ascending=False).head(1)
+    if len(top_conc) and float(top_conc.iloc[0]["spend_share_pct"]) >= 20:
+        r = top_conc.iloc[0]
+        skey = str(r["supplier_key"])
+        cat = top_category_for_supplier(skey)
+        alts = recommend_alternatives(skey, cat, min_lines=2, max_n=2, require_low_risk=True)
+        alt_text = ", ".join(alts) if alts else "No low-risk alternates with matching category evidence found in the provided data."
+        recs.append((
+            "Concentration",
+            f"De-risk concentrated spend tied to {r['supplier_name']}",
+            f"{_fmt_pct(float(r['spend_share_pct']))} of spend is concentrated in a single supplier · Primary category: {cat}",
+            f"Single-point-of-failure risk at this spend share. Based on category coverage, **recommended alternates** for {cat}: **{alt_text}**.",
+        ))
+
+    # 2) Delivery risk: highest-spend delivery-risk supplier
+    del_risk = supplier_master[supplier_master["risk_flag"] == "🟠 Delivery Risk"].sort_values("total_spend", ascending=False).head(1)
+    if len(del_risk):
+        r = del_risk.iloc[0]
+        skey = str(r["supplier_key"])
+        cat = top_category_for_supplier(skey)
+        alts = recommend_alternatives(skey, cat, min_lines=2, max_n=2, require_low_risk=True)
+        alt_text = ", ".join(alts) if alts else "No low-risk alternates with matching category evidence found in the provided data."
+        recs.append((
+            "Delivery",
+            f"Mitigate delivery exposure on {r['supplier_name']}",
+            f"On-time rate {_fmt_pct(float(r['on_time_rate']))} · Delivery-risk threshold ≤ 85% · Primary category: {cat}",
+            f"Initiate a performance improvement plan (OTD root cause, recovery plan, weekly tracking). In parallel, qualify backups in {cat}: **{alt_text}**.",
+        ))
+
+    # 3) Quality risk: highest estimated quality cost supplier (if meaningful)
+    tmpq = impact_exec.sort_values("defect_cost", ascending=False).head(1)
+    if len(tmpq) and float(tmpq.iloc[0]["defect_rate"]) > 0:
+        r = tmpq.iloc[0]
+        skey = str(r["supplier_key"])
+        cat = top_category_for_supplier(skey)
+        alts = recommend_alternatives(skey, cat, min_lines=2, max_n=2, require_low_risk=True)
+        alt_text = ", ".join(alts) if alts else "No low-risk alternates with matching category evidence found in the provided data."
+        recs.append((
+            "Quality",
+            f"Reduce defect-driven cost from {r['supplier_name']}",
+            f"Defect rate {_fmt_pct(float(r['defect_rate']))} · Est. {_fmt_money(float(r['defect_cost']))} rework cost · Primary category: {cat}",
+            f"Gate releases with incoming inspection + corrective action (containment, root cause, re-qualification). If issues persist, shift volume in {cat} toward: **{alt_text}**.",
+        ))
+
+    # 4) Pricing opportunity: biggest overpay where switchability exists (alternates should also be low-risk if possible)
+    cand = impact_exec[impact_exec["avg_alternatives"] >= 1].sort_values("estimated_overpay", ascending=False).head(1)
+    if len(cand) and float(cand.iloc[0]["estimated_overpay"]) > 0:
         r = cand.iloc[0]
-        actions.append(
-            (
-                "Pricing",
-                f"Renegotiate or re-source {r['supplier_name']}",
-                f"Est. {_fmt_money(float(r['estimated_overpay']))} annual overpay · {r['switchability']} switchability · {int(r['avg_alternatives'])} alternative(s) on file",
-                f"{r['supplier_name']} is priced **{_fmt_money_2(float(r['avg_delta_vs_best']))}/unit above the best** comparable quote on average (same RFQ line). With alternatives on file, savings are achievable.",
-            )
-        )
+        skey = str(r["supplier_key"])
+        cat = top_category_for_supplier(skey)
+        # For pricing, allow "Cost Risk" suppliers as alternates only if delivery/quality ok is preferred;
+        # keep require_low_risk True to avoid recommending problematic suppliers.
+        alts = recommend_alternatives(skey, cat, min_lines=2, max_n=2, require_low_risk=True)
+        alt_text = ", ".join(alts) if alts else "Alternates exist in RFQs, but none meet low-risk criteria in this dataset."
+        recs.append((
+            "Pricing",
+            f"Capture savings by re-sourcing or renegotiating {r['supplier_name']}",
+            f"Est. {_fmt_money(float(r['estimated_overpay']))} annual overpay · Avg {_fmt_money_2(float(r['avg_delta_vs_best']))}/unit above best comparable quote · Switchability: {r['switchability']}",
+            f"Data shows consistent premium vs best quote on comparable RFQ lines. Negotiate using benchmark evidence and/or move volume in {cat} to: **{alt_text}**.",
+        ))
 
-    tmp = impact_exec.sort_values("defect_cost", ascending=False)
-    if len(tmp) and float(tmp.iloc[0]["defect_rate"]) > 0:
-        r = tmp.iloc[0]
-        actions.append(
-            (
-                "Quality",
-                f"Place {r['supplier_name']} on corrective action",
-                f"Defect rate {_fmt_pct(float(r['defect_rate']))} · Est. {_fmt_money(float(r['defect_cost']))} rework cost",
-                f"Defects create real rework cost and schedule drag. Require containment actions (inspection plan, root cause, and re-qualification gates).",
-            )
-        )
-
-    tmp2 = supplier_master.sort_values("spend_share_pct", ascending=False)
-    if len(tmp2) and float(tmp2.iloc[0]["spend_share_pct"]) >= 20:
-        r = tmp2.iloc[0]
-        actions.append(
-            (
-                "Concentration",
-                f"Qualify backup supplier(s) for {r['supplier_name']}",
-                f"{_fmt_pct(float(r['spend_share_pct']))} of total spend concentrated in one supplier — single-point-of-failure risk",
-                f"When a single supplier holds **{_fmt_pct(float(r['spend_share_pct']))}** of spend, any slip becomes a business-wide outage. Qualify at least one backup for critical categories tied to this supplier.",
-            )
-        )
-
-    for label, title, detail, why in actions[:3]:
-        action_card(label, title, detail, why)
+    # Render up to 4 cards (or fewer if data is limited)
+    if not recs:
+        st.info("Not enough data in the provided files to generate strategic recommendations.")
+    else:
+        for label, title, detail, why in recs[:4]:
+            rec_card(label, title, detail, why)
 
     st.markdown("---")
 
@@ -1058,9 +1125,7 @@ with tab_decision:
 
     col_cat1, col_cat2, col_cat3 = st.columns([2, 1, 1])
     with col_cat1:
-        orders_cat = _add_part_category(orders)
-        rfqs_cat = _add_part_category(rfqs)
-        all_cats = sorted(set(orders_cat["part_category"].unique()) | set(rfqs_cat["part_category"].unique()))
+        all_cats = sorted(set(orders_cat_all["part_category"].unique()) | set(rfqs_cat_all["part_category"].unique()))
         st.selectbox("Part Category", ["(All Categories)"] + all_cats, key="category_choice")
     with col_cat2:
         st.radio("Evidence from", ["RFQs only", "Orders only", "Orders + RFQs"], key="capability_source")
@@ -1072,9 +1137,9 @@ with tab_decision:
 
     cap_parts = []
     if st.session_state["capability_source"] in ("Orders only", "Orders + RFQs"):
-        cap_parts.append(orders_cat.groupby(["supplier_key", "part_category"]).size().reset_index(name="lines"))
+        cap_parts.append(orders_cat_all.groupby(["supplier_key", "part_category"]).size().reset_index(name="lines"))
     if st.session_state["capability_source"] in ("RFQs only", "Orders + RFQs"):
-        cap_parts.append(rfqs_cat.groupby(["supplier_key", "part_category"]).size().reset_index(name="lines"))
+        cap_parts.append(rfqs_cat_all.groupby(["supplier_key", "part_category"]).size().reset_index(name="lines"))
     cap_counts = (
         pd.concat(cap_parts, ignore_index=True).groupby(["supplier_key", "part_category"], as_index=False)["lines"].sum()
         if cap_parts
@@ -1097,9 +1162,6 @@ with tab_decision:
         )
 
     decision_kpi = supplier_master[supplier_master["supplier_key"].isin(eligible_keys)].copy()
-    if chosen_cat != "(All Categories)":
-        # If user scoped to category, we still rank those eligible suppliers, but master KPIs are overall (acceptable for interview).
-        pass
 
     decision_kpi["fit"] = (decision_kpi["on_time_rate"] >= st.session_state["req_on_time"]) & (decision_kpi["defect_rate"] <= st.session_state["max_defects"])
     decision_kpi["fit_status"] = decision_kpi["fit"].map({True: "✅ Meets criteria", False: "❌ Below threshold"})
@@ -1138,7 +1200,6 @@ with tab_trends:
         st.warning("No `order_date` column found — trends unavailable.")
     else:
         top6_keys = supplier_master.sort_values("total_spend", ascending=False)["supplier_key"].head(6).tolist()
-        top6_names = [key_to_display(k) for k in top6_keys]
 
         cL, cM, cR = st.columns([2, 1, 1])
         with cL:
