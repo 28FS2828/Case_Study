@@ -1,6 +1,5 @@
 """
-Hoth Industries — Supplier Intelligence Platform
-(Executive-polished, safe baseline: preserves core logic + calculations)
+Hoth Industries — Supplier Intelligence Platform (Executive Version)
 """
 
 import re
@@ -22,35 +21,16 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-/* ---- Layout polish ---- */
-.block-container { padding-top: 1.25rem; padding-bottom: 2.0rem; max-width: 1350px; }
-hr { margin: 1.1rem 0; }
-
-/* ---- Typography ---- */
-h1 { font-size: 1.65rem; font-weight: 750; letter-spacing: -0.03em; margin-bottom: 0.25rem; }
-h2 { font-size: 1.25rem; font-weight: 650; letter-spacing: -0.02em; margin-top: 0.25rem; }
-h3 { font-size: 1.05rem; font-weight: 650; }
-
-/* ---- Metrics ---- */
-div[data-testid="stMetricValue"] { font-size: 1.75rem; font-weight: 750; }
+.block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.03em; }
+h2 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+div[data-testid="stMetricValue"] { font-size: 1.75rem; font-weight: 700; }
 div[data-testid="stMetricLabel"] { font-size: 0.85rem; color: #6b7280; }
-
-/* ---- Controls ---- */
-div[data-testid="stTabs"] button { font-size: 0.92rem; font-weight: 550; }
-div[data-testid="stExpander"] { border-radius: 12px; border: 1px solid #e5e7eb; }
-div[data-testid="stDataFrame"] { border-radius: 10px; }
-
-/* ---- Subtle card look for containers ---- */
-div[data-testid="stVerticalBlockBorderWrapper"] {
-  border-radius: 12px !important;
-  border: 1px solid #e5e7eb !important;
-}
-
-/* ---- Cleaner captions ---- */
-small, .stCaption { color: #6b7280 !important; }
-
-/* ---- Reduce extra whitespace between elements ---- */
-div[data-testid="stVerticalBlock"] > div:has(> div.stMarkdown) { margin-bottom: 0.15rem; }
+div[data-testid="stExpander"] { border-radius: 10px; border: 1px solid #e5e7eb; }
+div[data-testid="stTabs"] button { font-size: 0.9rem; font-weight: 500; }
+hr { margin: 1.2rem 0; }
+div[data-testid="stDataFrame"] { border-radius: 8px; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -74,6 +54,7 @@ DEFAULTS = {
     "show_coverage": False,
     "category_choice": "(All Categories)",
     "trend_supplier_filter": [],
+    "show_notes_debug": False,
 }
 
 RESET_FLAG = "__reset__"
@@ -118,8 +99,6 @@ DISPLAY_COLS = {
     "pct_not_best": "% Quotes Above Best (%)",
     "orders": "# Orders",
     "spend_share_pct": "Spend Share (%)",
-    "avg_alternatives": "Avg Alternatives",
-    "switchability": "Switchability",
 }
 
 # ─────────────────────────────────────────────
@@ -189,7 +168,7 @@ def dataframe_pretty(df: pd.DataFrame) -> pd.DataFrame:
             out[c] = out[c].apply(_fmt_money_2)
         elif "(%)" in c:
             out[c] = out[c].apply(_fmt_pct)
-        elif "(0-100)" in c or "(0\u20131" in c:
+        elif "(0-100)" in c or "(0–1" in c:
             out[c] = out[c].apply(_fmt_score)
     return out
 
@@ -208,10 +187,6 @@ def with_rank(df: pd.DataFrame) -> pd.DataFrame:
 def show_table(df: pd.DataFrame, max_rows: int = TOP_N):
     df_show = df.head(max_rows) if len(df) > max_rows else df
     st.dataframe(dataframe_pretty(df_show), use_container_width=True, hide_index=True)
-
-
-def divider():
-    st.markdown("---")
 
 
 # ─────────────────────────────────────────────
@@ -327,10 +302,10 @@ def rfq_competitiveness(rfqs_df: pd.DataFrame, cat: str) -> pd.DataFrame:
     if lk is None:
         return empty
 
-    # Apples-to-apples: compare within the same RFQ line (or normalized description when needed)
-    r["_lk"] = r[lk].astype(str).apply(_norm_text if lk == "part_description" else (lambda x: x))
+    r["_lk"] = r[lk].astype(str).apply(_norm_text if lk == "part_description" else lambda x: x)
     best = r.groupby("_lk")["quoted_price"].min().rename("best_price")
     r = r.join(best, on="_lk")
+
     r["delta"] = (r["quoted_price"] - r["best_price"]).clip(lower=0)
     r["is_best"] = (r["delta"] <= 1e-9).astype(int)
 
@@ -388,8 +363,7 @@ def switchability(rfqs_df: pd.DataFrame, cat: str) -> pd.DataFrame:
     if lk is None:
         return empty
 
-    # Keep keying consistent with competitiveness logic for stability
-    r["_lk"] = r[lk].astype(str).apply(_norm_text if lk == "part_description" else (lambda x: x))
+    r["_lk"] = r[lk].astype(str)
     n = r.groupby("_lk")["supplier_name"].nunique().rename("n")
     r = r.join(n, on="_lk")
     r["alts"] = (r["n"] - 1).clip(lower=0)
@@ -401,23 +375,72 @@ def switchability(rfqs_df: pd.DataFrame, cat: str) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────
-# SUPPLIER NOTES
+# SUPPLIER NOTES (FIXED + ROBUST)
 # ─────────────────────────────────────────────
 def parse_supplier_notes(text: str) -> dict:
+    """
+    Flexible supported formats:
+
+    Apex Manufacturing Inc - Strong quality, responsive
+    - Great on expedites
+    - Good communication
+
+    Apex Manufacturing Inc: Strong quality, responsive
+    • Great on expedites
+    • Good communication
+
+    Blocks may be separated by lines of === or --- or ___ (3+).
+    """
     notes = {}
     if not text:
         return notes
-    for b in re.split(r"\n=+\n", text):
+
+    t = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not t:
+        return notes
+
+    # Split blocks on common separators (3+ chars)
+    blocks = re.split(r"\n(?:=|-|_){3,}\n", t)
+
+    # Header: supplier <sep> descriptor, where sep is -, –, —, :
+    header_re = re.compile(r"^\s*(?P<supplier>.+?)\s*[-–—:]\s*(?P<desc>.+?)\s*$")
+
+    def clean_line(s: str) -> str:
+        s = s.strip()
+        s = re.sub(r"\s+", " ", s)
+        return s
+
+    def strip_bullet(s: str) -> str:
+        return re.sub(r"^\s*[-•*]\s*", "", s).strip()
+
+    for b in blocks:
         b = b.strip()
         if not b:
             continue
-        first = b.splitlines()[0].strip()
-        m = re.match(r"^([A-Z0-9 &/]+)\s*-\s*(.+)$", first, re.IGNORECASE)
+
+        lines = [ln for ln in b.splitlines() if ln.strip()]
+        if not lines:
+            continue
+
+        first = clean_line(lines[0])
+        m = header_re.match(first)
         if not m:
             continue
-        k = normalize_supplier_key(m.group(1).strip())
-        bullets = [ln.strip()[:200] for ln in b.splitlines()[1:] if ln.strip()][:6]
-        notes[k] = {"descriptor": m.group(2).strip(), "bullets": bullets}
+
+        supplier_raw = clean_line(m.group("supplier"))
+        desc = clean_line(m.group("desc"))
+
+        k = normalize_supplier_key(supplier_raw)
+
+        bullets = []
+        for ln in lines[1:]:
+            ln = clean_line(ln)
+            if not ln:
+                continue
+            bullets.append(strip_bullet(ln)[:220])
+
+        notes[k] = {"supplier_raw": supplier_raw, "descriptor": desc, "bullets": bullets[:8]}
+
     return notes
 
 
@@ -425,7 +448,9 @@ def note_snippet(notes: dict, name: str) -> str:
     n = notes.get(normalize_supplier_key(name), {})
     if not n:
         return ""
-    parts = [n.get("descriptor", "")]
+    parts = []
+    if n.get("descriptor"):
+        parts.append(n["descriptor"])
     if n.get("bullets"):
         parts.append(n["bullets"][0])
     line = " | ".join(p for p in parts if p)
@@ -493,6 +518,7 @@ def try_load_local():
 
 
 # ---- Attempt load ----
+supplier_notes_text = ""
 local = try_load_local()
 if local:
     orders, quality, rfqs, supplier_notes_text = process_raw(*local)
@@ -504,25 +530,27 @@ else:
         uf_o = c1.file_uploader("supplier_orders.csv", type=["csv"])
         uf_q = c1.file_uploader("quality_inspections.csv", type=["csv"])
         uf_r = c2.file_uploader("rfq_responses.csv", type=["csv"])
-        uf_n = c2.file_uploader("supplier_notes.txt", type=["txt"])
+        uf_n = c2.file_uploader("supplier_notes.txt (optional)", type=["txt"])
     if all([uf_o, uf_q, uf_r]):
         import io
 
         o = pd.read_csv(io.BytesIO(uf_o.read()))
-        q0 = pd.read_csv(io.BytesIO(uf_q.read()))
+        q = pd.read_csv(io.BytesIO(uf_q.read()))
         r = pd.read_csv(io.BytesIO(uf_r.read()))
-        n = uf_n.read().decode("utf-8", "ignore") if uf_n else ""
-        orders, quality, rfqs, supplier_notes_text = process_raw(o, q0, r, n)
+        supplier_notes_text = uf_n.read().decode("utf-8", "ignore") if uf_n else ""
+        orders, quality, rfqs, supplier_notes_text = process_raw(o, q, r, supplier_notes_text)
         supplier_notes = parse_supplier_notes(supplier_notes_text)
     else:
         st.info("Upload all three CSV files to continue.")
         st.stop()
 
+
 # ─────────────────────────────────────────────
 # BUILD SUPPLIER MASTER
 # ─────────────────────────────────────────────
 required = {"order_id", "supplier_name", "po_amount", "promised_date", "actual_delivery_date"}
-if missing := required - set(orders.columns):
+missing = required - set(orders.columns)
+if missing:
     st.error(f"Orders file missing columns: {sorted(missing)}")
     st.stop()
 
@@ -570,8 +598,11 @@ mp = supplier_master["avg_price"].replace(0, pd.NA).max()
 supplier_master["price_score"] = (
     (100 * (1 - supplier_master["avg_price"] / mp)).clip(0, 100).fillna(0) if pd.notna(mp) and mp > 0 else 0.0
 )
+
 supplier_master["performance_score"] = (
-    supplier_master["on_time_rate"] * 0.45 + (100 - supplier_master["defect_rate"]) * 0.35 + supplier_master["price_score"] * 0.20
+    supplier_master["on_time_rate"] * 0.45
+    + (100 - supplier_master["defect_rate"]) * 0.35
+    + supplier_master["price_score"] * 0.20
 ).round(1)
 
 total_spend_all = float(supplier_master["total_spend"].sum())
@@ -601,7 +632,7 @@ h1, h2 = st.columns([3, 1])
 h1.title("Hoth Industries · Supplier Intelligence Platform")
 h1.caption("Unified supplier performance, pricing competitiveness, and sourcing decision support.")
 with h2:
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
     rc1, rc2 = st.columns(2)
     with rc1:
         if st.button("Reset Filters", use_container_width=True, key="reset_top"):
@@ -609,11 +640,28 @@ with h2:
             st.rerun()
     with rc2:
         if st.button("Reload Data", use_container_width=True, key="reload_top"):
-            # Safe even if you aren't using cache_data elsewhere
             st.cache_data.clear()
             st.rerun()
 
-divider()
+st.markdown("---")
+
+# ─────────────────────────────────────────────
+# OPTIONAL DEBUG (notes)
+# ─────────────────────────────────────────────
+with st.expander("Debug — supplier notes parsing", expanded=False):
+    st.caption("Use this only if notes are not showing. It tells you whether the text loaded, parsed, and matched supplier keys.")
+    st.write("Notes text length:", len(supplier_notes_text or ""))
+    st.write("Parsed supplier notes:", len(supplier_notes))
+    st.write("First 10 parsed keys:", list(supplier_notes.keys())[:10])
+    if "intel_supplier" in st.session_state and st.session_state["intel_supplier"] not in (
+        None,
+        "",
+        "— Choose a supplier —",
+    ):
+        sel = st.session_state["intel_supplier"]
+        st.write("Selected supplier:", sel)
+        st.write("Normalized key:", normalize_supplier_key(sel))
+        st.write("Has note?:", normalize_supplier_key(sel) in supplier_notes)
 
 # ─────────────────────────────────────────────
 # TABS
@@ -651,30 +699,20 @@ with tab_overview:
     k1.metric(
         "Est. Pricing Leakage",
         _fmt_money(pricing_leak),
-        help="Avg price premium above best comparable RFQ quote (apples-to-apples), scaled across spend-derived units",
+        help="Avg price premium above best comparable market quote, scaled across total spend",
     )
-    k2.metric(
-        "Spend at Delivery Risk",
-        _fmt_money(late_spend),
-        help="Total spend with suppliers whose on-time rate is below 85%",
-    )
-    k3.metric(
-        "Est. Quality / Rework Cost",
-        _fmt_money(defect_cost),
-        help="Defect rate × spend × 0.5 rework cost multiplier (conservative)",
-    )
+    k2.metric("Spend at Delivery Risk", _fmt_money(late_spend), help="Total spend with suppliers whose on-time rate is below 85%")
+    k3.metric("Est. Quality / Rework Cost", _fmt_money(defect_cost), help="Defect rate x spend x 0.5 rework cost multiplier")
     k4.metric(
         "Suppliers with Active Risk",
         f"{n_quality_risk + n_delivery_risk}",
         help=f"Quality Risk: {n_quality_risk}  |  Delivery Risk: {n_delivery_risk}",
     )
 
-    divider()
+    st.markdown("---")
 
     # Priority Actions
     st.subheader("Priority Actions")
-    st.caption("Auto-generated from your data: highest-leverage interventions first.")
-
     actions = []
 
     cand = impact_exec[impact_exec["avg_alternatives"] >= 1].sort_values("estimated_overpay", ascending=False)
@@ -684,8 +722,9 @@ with tab_overview:
             (
                 "Pricing",
                 f"**Renegotiate or re-source {r['supplier_name']}**",
-                f"Est. {_fmt_money(float(r['estimated_overpay']))} annual leakage · "
-                f"{r['switchability']} switchability · {int(r['avg_alternatives'])} qualified alternative(s)",
+                f"Est. {_fmt_money(float(r['estimated_overpay']))} annual leakage "
+                f"· {r['switchability']} switchability "
+                f"· {int(r['avg_alternatives'])} qualified alternative(s) on file",
             )
         )
 
@@ -707,31 +746,29 @@ with tab_overview:
             (
                 "Concentration",
                 f"**Qualify backup supplier(s) for {r['supplier_name']}**",
-                f"{_fmt_pct(float(r['spend_share_pct']))} of total spend concentrated — single-point-of-failure exposure",
+                f"{_fmt_pct(float(r['spend_share_pct']))} of total spend concentrated in one supplier — single-point-of-failure risk",
             )
         )
-
-    badge_colors = {"Pricing": "#FF7F0E", "Quality": "#D62728", "Concentration": "#6366f1"}
 
     for label, title, detail in actions[:3]:
         with st.container(border=True):
             c1, c2 = st.columns([1, 9])
+            badge_colors = {"Pricing": "#FF7F0E", "Quality": "#D62728", "Concentration": "#6366f1"}
             c1.markdown(
                 f"<div style='background:{badge_colors.get(label,'#6b7280')};color:white;"
-                f"border-radius:8px;padding:6px 8px;font-size:0.75rem;font-weight:800;"
+                f"border-radius:6px;padding:4px 8px;font-size:0.75rem;font-weight:700;"
                 f"text-align:center;margin-top:2px'>{label.upper()}</div>",
                 unsafe_allow_html=True,
             )
             c2.markdown(title)
             c2.caption(detail)
 
-    divider()
+    st.markdown("---")
 
     # Positioning Matrix
     st.subheader("Supplier Positioning Matrix")
     st.caption(
-        "Bubble size = total spend. Hover for details. "
-        "**Ideal suppliers sit top-left**: high performance score, low pricing premium."
+        "Bubble size = total spend. Hover for details. **Ideal suppliers sit top-left**: high performance score, low pricing premium."
     )
 
     pos = impact_exec.merge(supplier_master[["supplier_name", "spend_share_pct"]], on="supplier_name", how="left")
@@ -739,19 +776,19 @@ with tab_overview:
 
     matrix = (
         alt.Chart(pos)
-        .mark_circle(opacity=0.84, stroke="white", strokeWidth=1.5)
+        .mark_circle(opacity=0.82, stroke="white", strokeWidth=1.5)
         .encode(
             x=alt.X(
                 "avg_delta_vs_best:Q",
-                title="Avg Pricing Premium vs Best Quote ($/unit) — lower is better",
+                title="Avg Pricing Premium vs Best Quote ($/unit)  —  lower is better",
                 scale=alt.Scale(zero=True),
             ),
             y=alt.Y(
                 "performance_score:Q",
-                title="Performance Score (0–100) — higher is better",
+                title="Performance Score (0–100)  —  higher is better",
                 scale=alt.Scale(domain=[0, 100]),
             ),
-            size=alt.Size("total_spend:Q", legend=None, scale=alt.Scale(range=[90, 2300])),
+            size=alt.Size("total_spend:Q", legend=None, scale=alt.Scale(range=[80, 2200])),
             color=alt.Color("risk_flag:N", scale=risk_color_scale, title="Risk"),
             tooltip=[
                 alt.Tooltip("supplier_name:N", title="Supplier"),
@@ -765,15 +802,14 @@ with tab_overview:
                 alt.Tooltip("spend_share_pct:Q", title="Spend Share (%)", format=".1f"),
             ],
         )
-        .properties(height=410)
+        .properties(height=400)
     )
-
     ref_line = alt.Chart(pd.DataFrame({"y": [75]})).mark_rule(color="#d1d5db", strokeDash=[5, 5], strokeWidth=1.5).encode(
         y="y:Q"
     )
     st.altair_chart(matrix + ref_line, use_container_width=True)
 
-    divider()
+    st.markdown("---")
 
     # Supplier table
     col_s, _ = st.columns([2, 2])
@@ -802,6 +838,7 @@ with tab_overview:
 """
         )
 
+
 # ═══════════════════════════════════════════════════════
 # TAB 2 · SUPPLIER INTEL
 # ═══════════════════════════════════════════════════════
@@ -809,7 +846,7 @@ with tab_intel:
     st.subheader("Supplier Intelligence Card")
     st.caption(
         "Look up any supplier before placing an order. "
-        "Surfaces performance, internal notes, pricing competitiveness, and a clear recommendation — in one view."
+        "Surfaces performance data, internal team knowledge, pricing vs. market, and a clear recommendation — all in one view."
     )
 
     selected = st.selectbox("Select a supplier:", ["— Choose a supplier —"] + all_suppliers, key="intel_supplier")
@@ -823,11 +860,10 @@ with tab_intel:
             note = get_full_note(supplier_notes, selected)
             risk = row["risk_flag"]
 
-            # Executive alert banner
             if "Quality" in risk:
-                st.error(f"STOP — {risk}: Review quality history before awarding new work.")
+                st.error(f"STOP — {risk}: Review quality history before sending this RFQ.")
             elif "Delivery" in risk:
-                st.warning(f"CAUTION — {risk}: Add schedule buffer / expedite plan.")
+                st.warning(f"CAUTION — {risk}: Add schedule buffer to this order.")
             elif "Cost" in risk:
                 st.info(f"NOTE — {risk}: Not price-competitive. Solicit at least 2 alternatives.")
             else:
@@ -850,7 +886,7 @@ with tab_intel:
             m4.metric("Total Spend", _fmt_money(row["total_spend"]))
             m5.metric("Avg Quoted Price", _fmt_money_2(row["avg_price"]) + " /unit")
 
-            divider()
+            st.markdown("---")
             left, right = st.columns([1.05, 1])
 
             with left:
@@ -865,23 +901,22 @@ with tab_intel:
                 else:
                     st.info("No internal notes on file for this supplier.")
 
-                divider()
+                st.markdown("---")
                 st.markdown("**Recommendation**")
                 rec = []
                 if row["on_time_rate"] < 85:
                     rec.append(
-                        f"Add **{max(1, round((90 - row['on_time_rate']) / 10))} week(s)** schedule buffer — on-time rate is {_fmt_pct(row['on_time_rate'])}."
+                        f"Add **{max(1,round((90-row['on_time_rate'])/10))} week(s)** of schedule buffer — on-time rate is {_fmt_pct(row['on_time_rate'])}."
                     )
                 if row["defect_rate"] > 5:
                     rec.append(f"Require **100% incoming inspection** — defect rate is {_fmt_pct(row['defect_rate'])}.")
                 if row["price_score"] <= 40:
                     rec.append(f"**Solicit competing quotes** — price score is {_fmt_score(row['price_score'])}/100.")
-
                 if rec:
                     for r_ in rec:
                         st.warning(r_)
                 else:
-                    st.success(f"No concerns flagged. **{selected}** is a reliable sourcing choice.")
+                    st.success(f"No concerns flagged. {selected} is a reliable sourcing choice.")
 
                 # Pricing vs market
                 if "rfq_id" in rfqs.columns:
@@ -897,12 +932,10 @@ with tab_intel:
                             best_mkt = mkt.groupby("rfq_id")["quoted_price"].min().rename("best")
                             comp_df = sup_rfqs_raw.join(best_mkt, on="rfq_id")
                             premium = (comp_df["quoted_price"] - comp_df["best"]).mean()
-                            divider()
+                            st.markdown("---")
                             st.markdown("**Pricing vs. Market**")
                             if premium > 0:
-                                st.warning(
-                                    f"Avg {_fmt_money_2(premium)}/unit **above** best market quote across comparable RFQ lines."
-                                )
+                                st.warning(f"Avg {_fmt_money_2(premium)}/unit **above** best market quote across comparable RFQ lines.")
                             else:
                                 st.success(
                                     f"Avg {_fmt_money_2(abs(premium))}/unit **at or below** best market quote — competitive."
@@ -919,7 +952,11 @@ with tab_intel:
                     sov["Variance"] = sov["days_diff"].apply(
                         lambda x: f"-{abs(int(x))}d early" if x < 0 else (f"+{int(x)}d late" if x > 0 else "On schedule")
                     )
-                    disp = [c for c in ["order_id", "part_description", "order_date", "Status", "Variance", "po_amount"] if c in sov.columns or c in ["Status", "Variance"]]
+                    disp = [
+                        c
+                        for c in ["order_id", "part_description", "order_date", "Status", "Variance", "po_amount"]
+                        if c in sov.columns or c in ["Status", "Variance"]
+                    ]
                     show_table(
                         sov[disp].sort_values("order_date", ascending=False) if "order_date" in disp else sov[disp],
                         max_rows=8,
@@ -930,12 +967,20 @@ with tab_intel:
                 st.markdown("**Quality Inspections**")
                 sup_q = q[q["supplier_name"] == selected].copy() if "supplier_name" in q.columns else pd.DataFrame()
                 if not sup_q.empty:
-                    q_disp = [c for c in ["inspection_date", "parts_inspected", "parts_rejected", "rejection_reason", "rework_required"] if c in sup_q.columns]
+                    q_disp = [
+                        c
+                        for c in ["inspection_date", "parts_inspected", "parts_rejected", "rejection_reason", "rework_required"]
+                        if c in sup_q.columns
+                    ]
                     sup_q_show = sup_q[q_disp].copy()
                     if {"parts_inspected", "parts_rejected"}.issubset(sup_q_show.columns):
-                        sup_q_show["Defect %"] = (sup_q_show["parts_rejected"] / sup_q_show["parts_inspected"] * 100).round(1).astype(str) + "%"
+                        sup_q_show["Defect %"] = (
+                            (sup_q_show["parts_rejected"] / sup_q_show["parts_inspected"] * 100).round(1).astype(str) + "%"
+                        )
                     show_table(
-                        sup_q_show.sort_values("inspection_date", ascending=False) if "inspection_date" in sup_q_show.columns else sup_q_show,
+                        sup_q_show.sort_values("inspection_date", ascending=False)
+                        if "inspection_date" in sup_q_show.columns
+                        else sup_q_show,
                         max_rows=8,
                     )
                 else:
@@ -945,18 +990,19 @@ with tab_intel:
         st.markdown(
             """
 **Try these:**
-- **QuickFab Industries** — High-risk, documented repeat failures  
-- **Stellar Metalworks** — Gold standard performer  
-- **Apex Manufacturing** — Names consolidated from messy variants in the source data
-"""
+- **QuickFab Industries** — High-risk, documented repeat failures
+- **Stellar Metalworks** — Gold standard performer
+- **Apex Manufacturing** — Names consolidated from 4 messy variants in the source data
+        """
         )
+
 
 # ═══════════════════════════════════════════════════════
 # TAB 3 · SOURCING DECISION
 # ═══════════════════════════════════════════════════════
 with tab_decision:
     st.subheader("Real-Time Sourcing Decision Support")
-    st.caption("Set requirements and generate a ranked shortlist of qualified suppliers for a part category.")
+    st.caption("Set your requirements and get a ranked shortlist of qualified suppliers for a specific part category.")
 
     ctrl1, ctrl2, ctrl3 = st.columns([1, 1, 2])
     with ctrl1:
@@ -979,7 +1025,7 @@ with tab_decision:
             wd, wq, wc = st.session_state["w_delivery"] / ws, st.session_state["w_quality"] / ws, st.session_state["w_cost"] / ws
         st.caption(f"Effective: Delivery {wd:.0%} · Quality {wq:.0%} · Cost {wc:.0%}")
 
-    divider()
+    st.markdown("---")
 
     col_cat1, col_cat2, col_cat3 = st.columns([2, 1, 1])
     with col_cat1:
@@ -1000,7 +1046,6 @@ with tab_decision:
         cap_parts.append(orders_cat.groupby(["supplier_name", "part_category"]).size().reset_index(name="lines"))
     if st.session_state["capability_source"] in ("RFQs only", "Orders + RFQs"):
         cap_parts.append(rfqs_cat.groupby(["supplier_name", "part_category"]).size().reset_index(name="lines"))
-
     cap_counts = (
         pd.concat(cap_parts, ignore_index=True).groupby(["supplier_name", "part_category"], as_index=False)["lines"].sum()
         if cap_parts
@@ -1010,7 +1055,10 @@ with tab_decision:
     if st.session_state["show_coverage"] and not cap_counts.empty:
         cov = cap_counts if chosen_cat == "(All Categories)" else cap_counts[cap_counts["part_category"] == chosen_cat]
         st.caption("Lines in category per supplier (based on selected evidence source):")
-        show_table(with_rank(format_for_display(cov.sort_values("lines", ascending=False), ["supplier_name", "part_category", "lines"])), max_rows=20)
+        show_table(
+            with_rank(format_for_display(cov.sort_values("lines", ascending=False), ["supplier_name", "part_category", "lines"])),
+            max_rows=20,
+        )
 
     if chosen_cat == "(All Categories)" or cap_counts.empty:
         eligible = set(supplier_master["supplier_name"].astype(str))
@@ -1059,15 +1107,23 @@ with tab_decision:
         sc_ap["avg_price"] = sc_ap["avg_price"].round(2)
 
         decision_kpi = (
-            sc_spend.merge(sc_otr, on="supplier_name", how="left").merge(sc_def, on="supplier_name", how="left").merge(sc_ap, on="supplier_name", how="left")
+            sc_spend.merge(sc_otr, on="supplier_name", how="left")
+            .merge(sc_def, on="supplier_name", how="left")
+            .merge(sc_ap, on="supplier_name", how="left")
         ).fillna({"on_time_rate": 0.0, "defect_rate": 0.0, "avg_price": 0.0})
 
         mp2 = decision_kpi["avg_price"].replace(0, pd.NA).max()
-        decision_kpi["price_score"] = (100 * (1 - decision_kpi["avg_price"] / mp2)).clip(0, 100).fillna(0) if pd.notna(mp2) and mp2 > 0 else 0.0
-        decision_kpi["performance_score"] = (decision_kpi["on_time_rate"] * wd + (100 - decision_kpi["defect_rate"]) * wq + decision_kpi["price_score"] * wc).round(1)
+        decision_kpi["price_score"] = (
+            (100 * (1 - decision_kpi["avg_price"] / mp2)).clip(0, 100).fillna(0) if pd.notna(mp2) and mp2 > 0 else 0.0
+        )
+        decision_kpi["performance_score"] = (
+            decision_kpi["on_time_rate"] * wd + (100 - decision_kpi["defect_rate"]) * wq + decision_kpi["price_score"] * wc
+        ).round(1)
         decision_kpi["risk_flag"] = decision_kpi.apply(risk_flag, axis=1)
 
-    decision_kpi["fit"] = (decision_kpi["on_time_rate"] >= st.session_state["req_on_time"]) & (decision_kpi["defect_rate"] <= st.session_state["max_defects"])
+    decision_kpi["fit"] = (decision_kpi["on_time_rate"] >= st.session_state["req_on_time"]) & (
+        decision_kpi["defect_rate"] <= st.session_state["max_defects"]
+    )
     decision_kpi["fit_status"] = decision_kpi["fit"].map({True: "✅ Meets criteria", False: "❌ Below threshold"})
     decision_kpi["notes_hint"] = decision_kpi["supplier_name"].apply(lambda s: note_snippet(supplier_notes, s))
 
@@ -1076,40 +1132,30 @@ with tab_decision:
 
     if n_fit == 0:
         st.warning(
-            f"No suppliers meet the current thresholds (≥{st.session_state['req_on_time']}% on-time, ≤{st.session_state['max_defects']}% defects). Consider relaxing criteria."
+            f"No suppliers meet the current thresholds (≥{st.session_state['req_on_time']}% on-time, ≤{st.session_state['max_defects']}% defects). Consider relaxing your criteria."
         )
     else:
-        st.success(f"**{n_fit} of {n_total} suppliers** meet your thresholds — ranked below by performance score.")
+        st.success(f"**{n_fit} of {n_total} suppliers** meet your quality and delivery thresholds — ranked below by performance score.")
 
     ranked = decision_kpi.sort_values(["fit", "performance_score"], ascending=[False, False])
     show_table(
         with_rank(
             format_for_display(
                 ranked,
-                [
-                    "supplier_name",
-                    "fit_status",
-                    "performance_score",
-                    "risk_flag",
-                    "on_time_rate",
-                    "defect_rate",
-                    "avg_price",
-                    "total_spend",
-                    "notes_hint",
-                ],
+                ["supplier_name", "fit_status", "performance_score", "risk_flag", "on_time_rate", "defect_rate", "avg_price", "total_spend", "notes_hint"],
             )
         ),
         TOP_N,
     )
 
-    divider()
+    st.markdown("---")
     st.subheader("Consolidation Opportunities")
     st.caption(f"Pricing analysis within scope: **{chosen_cat}**")
     impact_dec = build_pricing_impact(supplier_master, rfqs, chosen_cat)
     st.metric(
         "Est. Annual Savings Available",
         _fmt_money(float(impact_dec["estimated_overpay"].sum())),
-        help="Based on avg price premium above best comparable quote × estimated units",
+        help="Based on avg price premium above best comparable quote x estimated units",
     )
     show_table(
         with_rank(
@@ -1121,12 +1167,13 @@ with tab_decision:
         TOP_N,
     )
 
+
 # ═══════════════════════════════════════════════════════
 # TAB 4 · PERFORMANCE TRENDS
 # ═══════════════════════════════════════════════════════
 with tab_trends:
     st.subheader("Performance Trends")
-    st.caption("Delivery reliability, quality, and spend allocation over time — designed for weekly ops reviews and executive reporting.")
+    st.caption("Delivery reliability, quality, and spend allocation over time. Use these for weekly ops reviews and board reporting.")
 
     if "order_date" not in orders.columns:
         st.warning("No `order_date` column found — trends unavailable.")
@@ -1149,7 +1196,7 @@ with tab_trends:
 
         # ── Chart 1: Delivery Heatmap ──
         st.markdown("#### Delivery Reliability — Monthly On-Time Rate Heatmap")
-        st.caption("Each cell shows on-time %. Blank = no orders. Use for supplier accountability in weekly reviews.")
+        st.caption("Each cell shows the % of orders delivered on time that month. Red = chronic delays, green = reliable. Blank = no orders that month.")
 
         if ot_trend.empty:
             st.info("No delivery data for selected suppliers.")
@@ -1161,15 +1208,15 @@ with tab_trends:
 
             heatmap = (
                 alt.Chart(heat)
-                .mark_rect(cornerRadius=3)
+                .mark_rect(cornerRadius=2)
                 .encode(
-                    x=alt.X("month:T", title=None, axis=alt.Axis(format="%b %y", labelAngle=-30)),
+                    x=alt.X("month:T", title=None, axis=alt.Axis(format="%b %y", labelAngle=-30, tickCount="month")),
                     y=alt.Y("supplier_name:N", title=None, sort=alt.SortField("otr_pct", order="descending")),
                     color=alt.Color(
                         "otr_pct:Q",
                         title="On-Time %",
                         scale=alt.Scale(domain=[50, 100], range=["#D62728", "#FACC15", "#16A34A"]),
-                        legend=alt.Legend(orient="bottom", gradientLength=220),
+                        legend=alt.Legend(orient="bottom", gradientLength=200),
                     ),
                     tooltip=[
                         alt.Tooltip("supplier_name:N", title="Supplier"),
@@ -1178,7 +1225,7 @@ with tab_trends:
                         alt.Tooltip("n_orders:Q", title="# Orders"),
                     ],
                 )
-                .properties(height=max(140, len(tf) * 48))
+                .properties(height=max(130, len(tf) * 48))
             )
             text_ov = (
                 alt.Chart(heat)
@@ -1187,16 +1234,16 @@ with tab_trends:
                     x=alt.X("month:T"),
                     y=alt.Y("supplier_name:N", sort=alt.SortField("otr_pct", order="descending")),
                     text=alt.Text("otr_pct:Q", format=".0f"),
-                    color=alt.value("white"),
+                    color=alt.condition(alt.datum.otr_pct >= 85, alt.value("white"), alt.value("white")),
                 )
             )
             st.altair_chart(heatmap + text_ov, use_container_width=True)
 
-        divider()
+        st.markdown("---")
 
         # ── Chart 2: Late Delivery Scatter ──
         st.markdown("#### Late Deliveries — Days Late per Order")
-        st.caption("Each dot = one late order. Size = PO value. Persistent dots indicate systemic reliability issues.")
+        st.caption("Each dot = one late order. Size = PO value. Persistent dots for a supplier signal a systemic reliability problem.")
 
         late_orders = ot_valid[ot_valid["supplier_name"].isin(tf)].copy()
         late_orders["days_late"] = (late_orders["actual_delivery_date"] - late_orders["promised_date"]).dt.days
@@ -1210,7 +1257,7 @@ with tab_trends:
         else:
             sc = (
                 alt.Chart(late_orders)
-                .mark_circle(opacity=0.78)
+                .mark_circle(opacity=0.75)
                 .encode(
                     x=alt.X("month:T", title="Month", axis=alt.Axis(format="%b %y")),
                     y=alt.Y("days_late:Q", title="Days Late", scale=alt.Scale(zero=True)),
@@ -1225,16 +1272,16 @@ with tab_trends:
                     ]
                     + ([alt.Tooltip("part_description:N", title="Part")] if "part_description" in late_orders.columns else []),
                 )
-                .properties(height=310)
+                .properties(height=300)
             )
             st.altair_chart(sc, use_container_width=True)
             st.caption(f"{len(late_orders)} late orders shown across {late_orders['supplier_name'].nunique()} supplier(s).")
 
-        divider()
+        st.markdown("---")
 
         # ── Chart 3: Quality — defect rate bar ──
         st.markdown("#### Quality — Avg Defect Rate by Supplier")
-        st.caption("Overall rejection rate across inspections. Dashed line marks the 5% corrective-action threshold.")
+        st.caption("Overall rejection rate across all inspections. The orange line marks the 5% corrective-action threshold.")
 
         defect_bar_data = defects[defects["supplier_name"].isin(tf)].sort_values("defect_rate", ascending=False).copy()
         defect_bar_data["above"] = defect_bar_data["defect_rate"].apply(lambda x: "Above threshold" if x > 5 else "Within threshold")
@@ -1256,16 +1303,18 @@ with tab_trends:
                         alt.Tooltip("defect_rate:Q", title="Defect Rate (%)", format=".2f"),
                     ],
                 )
-                .properties(height=270)
+                .properties(height=260)
             )
-            tline = alt.Chart(pd.DataFrame({"y": [5]})).mark_rule(color="#FF7F0E", strokeDash=[6, 3], strokeWidth=2).encode(y="y:Q")
+            tline = alt.Chart(pd.DataFrame({"y": [5]})).mark_rule(color="#FF7F0E", strokeDash=[6, 3], strokeWidth=2).encode(
+                y="y:Q"
+            )
             st.altair_chart(dbar + tline, use_container_width=True)
 
-        divider()
+        st.markdown("---")
 
         # ── Chart 4: Spend share stacked area ──
         st.markdown("#### Spend Allocation — Monthly Share by Supplier")
-        st.caption("Tracks sourcing concentration over time. Rising share from one supplier can signal growing dependency risk.")
+        st.caption("Tracks how your sourcing concentration has shifted over time. Rising share from a single supplier signals growing dependency risk.")
 
         spend_trend = orders[orders["supplier_name"].isin(tf)].copy()
         spend_trend["month"] = spend_trend["order_date"].dt.to_period("M").dt.to_timestamp()
@@ -1286,23 +1335,25 @@ with tab_trends:
                         alt.Tooltip("spend_k:Q", title="Spend ($K)", format=".1f"),
                     ],
                 )
-                .properties(height=290)
+                .properties(height=280)
             )
             st.altair_chart(area, use_container_width=True)
             st.caption("Y-axis shows proportional share of spend that month.")
+
 
 # ═══════════════════════════════════════════════════════
 # TAB 5 · FINANCIAL IMPACT
 # ═══════════════════════════════════════════════════════
 with tab_financial:
     st.subheader("Financial Impact Analysis")
-    st.caption("Quantifies supplier underperformance across pricing leakage, quality/rework cost, and delivery risk exposure.")
+    st.caption(
+        "Quantifies the cost of supplier underperformance across three dimensions: pricing leakage, quality/rework cost, and delivery risk exposure."
+    )
 
     cat_fin = st.session_state.get("category_choice", "(All Categories)")
     impact_df = build_pricing_impact(supplier_master, rfqs, cat_fin)
     impact_df["defect_cost"] = (impact_df["total_spend"] * (impact_df["defect_rate"] / 100) * 0.5).round(0)
     impact_df["total_risk"] = impact_df["estimated_overpay"] + impact_df["defect_cost"]
-
     late_spend_fin = float(impact_df.loc[impact_df["on_time_rate"] < 85, "total_spend"].sum())
     total_pricing = float(impact_df["estimated_overpay"].sum())
     total_quality = float(impact_df["defect_cost"].sum())
@@ -1310,16 +1361,18 @@ with tab_financial:
 
     # KPIs
     f1, f2, f3, f4 = st.columns(4)
-    f1.metric("Total Quantified Risk", _fmt_money(total_risk), help="Pricing leakage + estimated quality cost combined")
-    f2.metric("Pricing Leakage", _fmt_money(total_pricing), help="Avg premium above best comparable RFQ quote × estimated units")
-    f3.metric("Est. Quality / Rework Cost", _fmt_money(total_quality), help="Defect rate × total spend × 0.5 rework cost factor")
+    f1.metric("Total Quantified Risk", _fmt_money(total_risk), help="Pricing leakage + est. quality cost combined")
+    f2.metric("Pricing Leakage", _fmt_money(total_pricing), help="Avg premium above best comparable RFQ quote x estimated units")
+    f3.metric("Est. Quality / Rework Cost", _fmt_money(total_quality), help="Defect rate x total spend x 0.5 rework cost factor")
     f4.metric("Spend at Delivery Risk", _fmt_money(late_spend_fin), help="Total spend with suppliers below 85% on-time rate")
 
-    divider()
+    st.markdown("---")
 
     # ── Chart 1: Stacked risk bar ──
     st.markdown("#### Financial Exposure by Supplier — Pricing + Quality Cost")
-    st.caption("Suppliers with the highest combined exposure. Stacked bars show leakage vs rework cost breakdown.")
+    st.caption(
+        "Suppliers furthest to the right carry the highest combined financial risk. Stacked bars show the breakdown between pricing leakage and rework cost."
+    )
 
     risk_plot = impact_df[impact_df["total_risk"] > 0].sort_values("total_risk", ascending=False).head(12).copy()
     if not risk_plot.empty:
@@ -1329,12 +1382,7 @@ with tab_financial:
             var_name="type",
             value_name="cost",
         )
-        melt["type"] = melt["type"].map(
-            {
-                "estimated_overpay": "Pricing Leakage",
-                "defect_cost": "Quality / Rework Cost",
-            }
-        )
+        melt["type"] = melt["type"].map({"estimated_overpay": "Pricing Leakage", "defect_cost": "Quality / Rework Cost"})
         stacked = (
             alt.Chart(melt)
             .mark_bar()
@@ -1353,22 +1401,22 @@ with tab_financial:
                     alt.Tooltip("cost:Q", title="Est. Cost ($)", format="$,.0f"),
                 ],
             )
-            .properties(height=max(250, len(risk_plot) * 36))
+            .properties(height=max(240, len(risk_plot) * 36))
         )
         st.altair_chart(stacked, use_container_width=True)
 
-    divider()
+    st.markdown("---")
 
     # ── Chart 2: Spend vs Performance ──
     st.markdown("#### Spend Concentration vs. Performance Score")
-    st.caption("**High spend + low performance = highest priority.** Bottom-right quadrant = immediate intervention targets.")
+    st.caption("**High spend + low performance = highest priority.** Suppliers in the bottom-right quadrant represent your most urgent intervention targets.")
 
     sp_vs_perf = impact_df.copy()
     sp_vs_perf["spend_m"] = (sp_vs_perf["total_spend"] / 1e6).round(3)
 
     scatter2 = (
         alt.Chart(sp_vs_perf)
-        .mark_circle(size=160, opacity=0.84, stroke="white", strokeWidth=1.5)
+        .mark_circle(size=160, opacity=0.82, stroke="white", strokeWidth=1.5)
         .encode(
             x=alt.X("spend_m:Q", title="Total Spend ($M)", scale=alt.Scale(zero=True)),
             y=alt.Y("performance_score:Q", title="Performance Score (0–100)", scale=alt.Scale(domain=[0, 100])),
@@ -1384,17 +1432,17 @@ with tab_financial:
                 alt.Tooltip("risk_flag:N", title="Risk Flag"),
             ],
         )
-        .properties(height=370)
+        .properties(height=360)
     )
     ref = alt.Chart(pd.DataFrame({"y": [75]})).mark_rule(color="#d1d5db", strokeDash=[5, 5], strokeWidth=1.5).encode(y="y:Q")
     st.altair_chart(scatter2 + ref, use_container_width=True)
-    st.caption("Dashed line = 75 performance score. Below line with large spend = urgent focus.")
+    st.caption("Dashed line = 75 performance score. Bottom-right = large spend, weak performance — immediate action required.")
 
-    divider()
+    st.markdown("---")
 
     # ── Chart 3: Pricing Premium Distribution ──
     st.markdown("#### Pricing Competitiveness — Premium vs. Best Market Quote")
-    st.caption("Avg premium for apples-to-apples RFQ lines. Zero is ideal.")
+    st.caption("How much more (on avg) does each supplier charge versus the lowest competing quote for the same part? Zero is ideal.")
 
     price_plot = impact_df[impact_df["avg_delta_vs_best"] > 0].sort_values("avg_delta_vs_best", ascending=False).head(12).copy()
     if not price_plot.empty:
@@ -1412,11 +1460,11 @@ with tab_financial:
                     alt.Tooltip("rfqs:Q", title="# RFQs"),
                 ],
             )
-            .properties(height=max(230, len(price_plot) * 34))
+            .properties(height=max(220, len(price_plot) * 34))
         )
         st.altair_chart(price_bar, use_container_width=True)
 
-    divider()
+    st.markdown("---")
 
     with st.expander("Full impact table — all suppliers"):
         show_table(
@@ -1445,23 +1493,22 @@ with tab_financial:
     with st.expander("Methodology & data notes"):
         st.markdown(
             """
-**Pricing Leakage**  
-Avg Price Premium is computed *within the same RFQ line* (apples-to-apples — never compares prices across different parts).  
+**Pricing Leakage**
+Avg Price Premium is computed *within the same RFQ line* (apples-to-apples — never compares prices across different parts).
 Estimated Units = total spend ÷ avg quoted price. Leakage = Premium × Estimated Units.
 
-**Quality Cost**  
-Est. Rework Cost = total spend × defect rate × 0.5 (conservative rework cost factor).  
-Actual costs vary by part complexity, labor rates, and re-inspection time.
+**Quality Cost**
+Est. Rework Cost = total spend × defect rate × 0.5 (conservative rework cost factor).
+Actual costs depend on part complexity, labor rates, and re-inspection — connect ERP receipts for precision.
 
-**Delivery Risk**  
-Spend flagged as "at risk" = suppliers with on-time rate < 85%.  
-Excludes orders with missing delivery dates (not penalized).
+**Delivery Risk**
+Spend flagged as "at risk" = suppliers with on-time rate < 85%. Excludes orders with missing delivery dates (not penalized).
 
-**Roadmap to Higher Precision**  
-- Connect ERP goods receipts for actual received quantities (removes spend-derived unit estimate)  
-- Add commodity price benchmarks (should-cost validation)  
-- Track trend direction (improving vs declining) for predictive alerts  
-- Incorporate freight and expedite costs into total cost of ownership  
+**Roadmap to Higher Precision**
+- Connect SAP/ERP goods receipts for actual received quantities (removes the spend-derived unit estimate)
+- Add commodity price benchmarks (e.g., aluminum LME) for should-cost validation
+- Track supplier trend direction (improving vs. declining) to enable predictive alerts
+- Incorporate freight and expedite costs into the total cost of ownership model
 """
         )
 
