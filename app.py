@@ -1003,18 +1003,11 @@ with tab_intel:
             m1, m2, m3, m4, m5 = st.columns(5)
             m1.metric("On-Time Rate", _fmt_pct(row["on_time_rate"]))
             m2.metric("Defect Rate", _fmt_pct(row["defect_rate"]))
-            # Performance Score explanation (hover + optional details)
-            st.markdown(
-                '''<style>
-                .ps-help{display:inline-block; margin-left:6px; font-weight:800; color:#6b7280; cursor:help;}
-                </style>''',
-                unsafe_allow_html=True,
+            m3.metric(
+                "Performance Score",
+                _fmt_score(row["performance_score"]) + " / 100",
+                help="Weighted composite: Delivery (45%) + Quality (35%) + Cost (20%). Delivery = on-time rate. Quality = 100 − defect rate. Cost = price score vs max quote.",
             )
-            st.markdown(
-                f'<div style="margin-bottom:6px;"><span style="font-size:0.85rem; color:#6b7280; font-weight:650;">Performance Score</span><span class="ps-help" title="Weighted composite: Delivery (45%) + Quality (35%) + Cost (20%). Delivery = on-time rate. Quality = 100 - defect rate. Cost = price score vs max quote.">?</span></div>',
-                unsafe_allow_html=True,
-            )
-            m3.metric("", _fmt_score(row["performance_score"]) + " / 100")
             m4.metric("Total Spend", _fmt_money(row["total_spend"]))
             m5.metric("Avg Quoted Price", _fmt_money_2(row["avg_price"]) + " /unit")
 
@@ -1028,10 +1021,6 @@ with tab_intel:
                     "performance_score = 0.45 * on_time_rate + 0.35 * (100 - defect_rate) + 0.20 * price_score",
                     language="text",
                 )
-
-            m4.metric("Total Spend", _fmt_money(row["total_spend"]))
-            m5.metric("Avg Quoted Price", _fmt_money_2(row["avg_price"]) + " /unit")
-
             st.markdown("---")
             left, right = st.columns([1.15, 1])
 
@@ -1230,7 +1219,7 @@ with tab_trends:
         with cL:
             st.selectbox("Suppliers to display:", ["Top 6 by spend", "All suppliers", "Single supplier"], key="trend_supplier_mode")
         with cM:
-            st.selectbox("Primary chart", ["On-Time Trend", "Late Orders Trend", "Spend Trend"], key="trend_focus")
+            st.selectbox("Primary chart", ["On-Time Trend", "Spend Trend"], key="trend_focus")
         with cR:
             st.selectbox("Window (months)", [6, 12, 18, 24, 36, 48], key="trend_months")
 
@@ -1264,14 +1253,14 @@ with tab_trends:
             else:
                 heat = ot.groupby(["month", "supplier_name"])["on_time"].agg(["mean", "count"]).reset_index()
                 heat.columns = ["month", "supplier_name", "on_time_rate", "n_orders"]
-                heat["otr_pct"] = (heat["on_time_rate"] * 100).round(1)
+                heat["otr_pct"] = (heat["on_time_rate"] * 100).round(1).clip(0, 100)
 
                 line = (
                     alt.Chart(heat)
                     .mark_line(point=True)
                     .encode(
-                        x=alt.X("month:T", title="Month", axis=alt.Axis(format="%b %y")),
-                        y=alt.Y("otr_pct:Q", title="On-Time %", scale=alt.Scale(domain=[50, 100])),
+                        x=alt.X("month:T", title="Month", axis=alt.Axis(format="%b %y", tickCount=(months if months <= 12 else 12), labelOverlap=True)),
+                        y=alt.Y("otr_pct:Q", title="On-Time %", scale=alt.Scale(domain=[0, 100])),
                         color=alt.Color("supplier_name:N", title="Supplier"),
                         tooltip=[
                             alt.Tooltip("supplier_name:N", title="Supplier"),
@@ -1302,7 +1291,7 @@ with tab_trends:
                         alt.Chart(lc)
                         .mark_bar()
                         .encode(
-                            x=alt.X("month:T", title="Month", axis=alt.Axis(format="%b %y")),
+                            x=alt.X("month:T", title="Month", axis=alt.Axis(format="%b %y", tickCount=(months if months <= 12 else 12), labelOverlap=True)),
                             y=alt.Y("late_orders:Q", title="Late Orders", scale=alt.Scale(zero=True)),
                             color=alt.Color("supplier_name:N", title="Supplier"),
                             tooltip=[
@@ -1327,7 +1316,7 @@ with tab_trends:
                     alt.Chart(ms)
                     .mark_line(point=True)
                     .encode(
-                        x=alt.X("month:T", title="Month", axis=alt.Axis(format="%b %y")),
+                        x=alt.X("month:T", title="Month", axis=alt.Axis(format="%b %y", tickCount=(months if months <= 12 else 12), labelOverlap=True)),
                         y=alt.Y("spend_k:Q", title="Spend ($K)", scale=alt.Scale(zero=True)),
                         color=alt.Color("supplier_name:N", title="Supplier"),
                         tooltip=[
@@ -1374,7 +1363,7 @@ with tab_financial:
 
     st.markdown("---")
     st.markdown("#### Financial Exposure by Supplier — Overpay + Quality Cost")
-    risk_plot = impact_df[impact_df["total_risk"] > 0].sort_values("total_risk", ascending=False).head(12).copy()
+    risk_plot = impact_df[impact_df["total_risk"] > 0].sort_values("total_risk", ascending=False).copy()
     if not risk_plot.empty:
         melt = pd.melt(risk_plot[["supplier_name", "estimated_overpay", "defect_cost"]], id_vars="supplier_name", var_name="type", value_name="cost")
         melt["type"] = melt["type"].map({"estimated_overpay": "Estimated Overpay", "defect_cost": "Quality / Rework Cost"})
@@ -1383,7 +1372,7 @@ with tab_financial:
             .mark_bar()
             .encode(
                 x=alt.X("cost:Q", title="Estimated Cost ($)", axis=alt.Axis(format="$,.0f")),
-                y=alt.Y("supplier_name:N", sort="-x", title=None),
+                y=alt.Y("supplier_name:N", sort=alt.SortField(field="cost", op="sum", order="descending"), title=None, axis=alt.Axis(labelLimit=0)),
                 color=alt.Color("type:N", title="Cost Type", legend=alt.Legend(orient="bottom")),
                 tooltip=[
                     alt.Tooltip("supplier_name:N", title="Supplier"),
@@ -1391,7 +1380,7 @@ with tab_financial:
                     alt.Tooltip("cost:Q", title="Est. Cost ($)", format="$,.0f"),
                 ],
             )
-            .properties(height=max(240, len(risk_plot) * 36))
+            .properties(height=max(320, min(2000, len(risk_plot) * 28)))
         )
         st.altair_chart(stacked, use_container_width=True)
 
