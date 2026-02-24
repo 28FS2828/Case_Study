@@ -1243,7 +1243,6 @@ with tab_trends:
         ot["month"] = ot["order_date"].dt.to_period("M").dt.to_timestamp()
         ot = ot[ot["month"] >= start_cut].copy()
         ot["supplier_name"] = ot["supplier_key"].apply(key_to_display)
-
         focus = st.session_state["trend_focus"]
 
         if focus == "On-Time Trend":
@@ -1255,11 +1254,18 @@ with tab_trends:
                 heat.columns = ["month", "supplier_name", "on_time_rate", "n_orders"]
                 heat["otr_pct"] = (heat["on_time_rate"] * 100).round(1).clip(0, 100)
 
+                # Force monthly ticks to avoid repeated labels like "Mar 25" showing multiple times
+                month_vals = sorted([v for v in heat["month"].dropna().unique()])
+
                 line = (
                     alt.Chart(heat)
                     .mark_line(point=True)
                     .encode(
-                        x=alt.X("month:T", title="Month", axis=alt.Axis(format="%b %y", tickCount=(months if months <= 12 else 12), labelOverlap=True)),
+                        x=alt.X(
+                            "month:T",
+                            title="Month",
+                            axis=alt.Axis(format="%b %y", values=month_vals, labelOverlap=True),
+                        ),
                         y=alt.Y("otr_pct:Q", title="On-Time %", scale=alt.Scale(domain=[0, 100])),
                         color=alt.Color("supplier_name:N", title="Supplier"),
                         tooltip=[
@@ -1271,40 +1277,15 @@ with tab_trends:
                     )
                     .properties(height=340)
                 )
-                tgt = alt.Chart(pd.DataFrame({"y": [85]})).mark_rule(color="#d1d5db", strokeDash=[6, 4], strokeWidth=1.6).encode(y="y:Q")
+                tgt = (
+                    alt.Chart(pd.DataFrame({"y": [85]}))
+                    .mark_rule(color="#d1d5db", strokeDash=[6, 4], strokeWidth=1.6)
+                    .encode(y="y:Q")
+                )
                 st.altair_chart(line + tgt, use_container_width=True)
                 st.caption("Dashed line = 85% delivery-risk threshold.")
 
-        elif focus == "Late Orders Trend":
-            st.markdown("#### Late Orders Trend (Monthly Count)")
-            if ot.empty:
-                st.info("No on-time history in the selected window.")
-            else:
-                lot = ot.copy()
-                lot["days_late"] = (lot["actual_delivery_date"] - lot["promised_date"]).dt.days
-                lot = lot[lot["days_late"] > 0].copy()
-                if lot.empty:
-                    st.success("No late deliveries recorded for the selected suppliers in this window.")
-                else:
-                    lc = lot.groupby(["month", "supplier_name"])["order_id"].nunique().reset_index(name="late_orders")
-                    bar = (
-                        alt.Chart(lc)
-                        .mark_bar()
-                        .encode(
-                            x=alt.X("month:T", title="Month", axis=alt.Axis(format="%b %y", tickCount=(months if months <= 12 else 12), labelOverlap=True)),
-                            y=alt.Y("late_orders:Q", title="Late Orders", scale=alt.Scale(zero=True)),
-                            color=alt.Color("supplier_name:N", title="Supplier"),
-                            tooltip=[
-                                alt.Tooltip("supplier_name:N", title="Supplier"),
-                                alt.Tooltip("month:T", title="Month", format="%B %Y"),
-                                alt.Tooltip("late_orders:Q", title="Late Orders"),
-                            ],
-                        )
-                        .properties(height=320)
-                    )
-                    st.altair_chart(bar, use_container_width=True)
-
-        else:
+        elif focus == "Spend Trend":
             st.markdown("#### Spend Trend (Monthly Spend $K)")
             if o.empty:
                 st.info("No spend history in the selected window.")
@@ -1312,11 +1293,17 @@ with tab_trends:
                 ms = o.groupby(["month", "supplier_name"])["po_amount"].sum().reset_index()
                 ms["spend_k"] = (ms["po_amount"] / 1000).round(1)
 
+                month_vals = sorted([v for v in ms["month"].dropna().unique()])
+
                 line2 = (
                     alt.Chart(ms)
                     .mark_line(point=True)
                     .encode(
-                        x=alt.X("month:T", title="Month", axis=alt.Axis(format="%b %y", tickCount=(months if months <= 12 else 12), labelOverlap=True)),
+                        x=alt.X(
+                            "month:T",
+                            title="Month",
+                            axis=alt.Axis(format="%b %y", values=month_vals, labelOverlap=True),
+                        ),
                         y=alt.Y("spend_k:Q", title="Spend ($K)", scale=alt.Scale(zero=True)),
                         color=alt.Color("supplier_name:N", title="Supplier"),
                         tooltip=[
@@ -1328,6 +1315,7 @@ with tab_trends:
                     .properties(height=340)
                 )
                 st.altair_chart(line2, use_container_width=True)
+
 
         st.markdown("---")
         with st.expander("Debug — Apex coverage check"):
@@ -1362,17 +1350,36 @@ with tab_financial:
     f4.metric("Spend at Delivery Risk", _fmt_money(late_spend_fin), help="Total spend with suppliers below 85% on-time rate")
 
     st.markdown("---")
+    
     st.markdown("#### Financial Exposure by Supplier — Overpay + Quality Cost")
+
+    # Show ALL suppliers with quantified risk (no top-N truncation)
     risk_plot = impact_df[impact_df["total_risk"] > 0].sort_values("total_risk", ascending=False).copy()
     if not risk_plot.empty:
-        melt = pd.melt(risk_plot[["supplier_name", "estimated_overpay", "defect_cost"]], id_vars="supplier_name", var_name="type", value_name="cost")
+        melt = pd.melt(
+            risk_plot[["supplier_name", "estimated_overpay", "defect_cost"]],
+            id_vars="supplier_name",
+            var_name="type",
+            value_name="cost",
+        )
         melt["type"] = melt["type"].map({"estimated_overpay": "Estimated Overpay", "defect_cost": "Quality / Rework Cost"})
+
+        # Altair/Vega-Lite sort objects can be version-sensitive; compute an explicit order list to avoid schema errors
+        supplier_order = (
+            melt.groupby("supplier_name")["cost"].sum().sort_values(ascending=False).index.tolist()
+        )
+
         stacked = (
             alt.Chart(melt)
             .mark_bar()
             .encode(
                 x=alt.X("cost:Q", title="Estimated Cost ($)", axis=alt.Axis(format="$,.0f")),
-                y=alt.Y("supplier_name:N", sort=alt.SortField(field="cost", op="sum", order="descending"), title=None, axis=alt.Axis(labelLimit=0)),
+                y=alt.Y(
+                    "supplier_name:N",
+                    sort=supplier_order,
+                    title=None,
+                    axis=alt.Axis(labelLimit=0),
+                ),
                 color=alt.Color("type:N", title="Cost Type", legend=alt.Legend(orient="bottom")),
                 tooltip=[
                     alt.Tooltip("supplier_name:N", title="Supplier"),
@@ -1380,7 +1387,7 @@ with tab_financial:
                     alt.Tooltip("cost:Q", title="Est. Cost ($)", format="$,.0f"),
                 ],
             )
-            .properties(height=max(320, min(2000, len(risk_plot) * 28)))
+            .properties(height=max(320, min(2000, len(supplier_order) * 28)))
         )
         st.altair_chart(stacked, use_container_width=True)
 
